@@ -1,0 +1,52 @@
+"itemizedLewd": {
+    "head":          { "preference": 1.10, "sensitivity": 1.00, "prefIntensity": 2,  "maxIntensity": 4 },  // gentle hair strokes
+    "forehead":      { "preference": 1.15, "sensitivity": 0.90, "prefIntensity": 1,  "maxIntensity": 3 },
+    "ear":           { "preference": 1.80, "sensitivity": 1.95, "prefIntensity": 2,  "maxIntensity": 5 },  // warm breath + nibble = devastating
+    "nose":          { "preference": 0.90, "sensitivity": 0.90, "prefIntensity": 2,  "maxIntensity": 4 },
+    "cheeks":        { "preference": 1.1.30, "sensitivity": 1.10, "prefIntensity": 2,  "maxIntensity": 5 },
+    "lips":          { "preference": 1.65, "sensitivity": 1.45, "prefIntensity": 4,  "maxIntensity": 7 },  // loves deep, claiming kisses
+    "tongue":        { "preference": 1.55, "sensitivity": 1.55, "prefIntensity": 5,  "maxIntensity": 8 },
+    "mouthShallow":  { "preference": 1.45, "sensitivity": 1.25, "prefIntensity": 4,  "maxIntensity": 7 },
+    "mouthDeep":     { "preference": 1.25, "sensitivity": 1.30, "prefIntensity": 4,  "maxIntensity": 6 },
+    "mouthThroat":   { "preference": 0.40, "sensitivity": 0.90, "prefIntensity": 2,  "maxIntensity": 3 },  // gagging = instant shutdown
+    "neckNape":      { "preference": 1.95, "sensitivity": 2.10, "prefIntensity": 3,  "maxIntensity": 7 },  // her #1 weakness
+    "neckSide":      { "preference": 1.85, "sensitivity": 1.90, "prefIntensity": 3,  "maxIntensity": 7 },
+    "clavicle":      { "preference": 1.50, "sensitivity": 1.40, "prefIntensity": 3,  "maxIntensity": 6 },
+    "breast":        { "preference": 1.75, "sensitivity": 1.70, "prefIntensity": 5,  "maxIntensity": 8 },
+    "areola":        { "preference": 1.85, "sensitivity": 1.85, "prefIntensity": 5,  "maxIntensity": 8 },
+    "nipple":        { "preference": 1.95, "sensitivity": 2.20, "prefIntensity": 6,  "maxIntensity": 9 },  // secretly loves it **forceful** when ready
+    "backLower":     { "preference": 1.90, "sensitivity": 1.95, "prefIntensity": 4,  "maxIntensity": 8 },  // firm palm + nails = she collapses
+    "thighInner":    { "preference": 1.95, "sensitivity": 2.15, "prefIntensity": 5,  "maxIntensity": 9 },  // squeeze hard here and she’ll beg
+    "clitoris":      { "preference": 2.00, "sensitivity": 2.40, "prefIntensity": 6,  "maxIntensity": 9 },  // the one place she’ll accept **near-impactful** at climax
+    "vaginaShallow": { "preference": 1.80, "sensitivity": 1.70, "prefIntensity": 6,  "maxIntensity": 9 },
+    "vaginaDeep":    { "preference": 1.70, "sensitivity": 1.60, "prefIntensity": 6,  "maxIntensity": 9 },
+    "labiaMinora":   { "preference": 1.80, "sensitivity": 1.80, "prefIntensity": 5,  "maxIntensity": 8 },
+    "monsVenus":     { "preference": 1.65, "sensitivity": 1.55, "prefIntensity": 5,  "maxIntensity": 8 },
+    "iliacRegion":   { "preference": 1.70, "sensitivity": 1.70, "prefIntensity": 5,  "maxIntensity": 8 },
+    "buttockUnderside":{ "preference": 1.55, "sensitivity": 1.45, "prefIntensity": 6,  "maxIntensity": 9 },
+    "perinium":      { "preference": 1.35, "sensitivity": 1.45, "prefIntensity": 4,  "maxIntensity": 7 },
+
+    // Low-tolerance zones — exceeding maxIntensity here is catastrophic
+    "anus":          { "preference": 0.20, "sensitivity": 0.60, "prefIntensity": 1,  "maxIntensity": 2 },  // absolute hard no
+    "rectumShallow": { "preference": 0.15, "sensitivity": 0.50, "prefIntensity": 1,  "maxIntensity": 2 },
+    "rectumDeep":    { "preference": 0.10, "sensitivity": 0.40, "prefIntensity": 1,  "maxIntensity": 2 },
+    "urethra":       { "preference": 0.50, "sensitivity": 0.90, "prefIntensity": 2,  "maxIntensity": 3 },
+    "footBottom":    { "preference": 0.55, "sensitivity": 1.10, "prefIntensity": 2,  "maxIntensity": 3 },  // ticklish → negative
+    "footToe":       { "preference": 0.60, "sensitivity": 0.90, "prefIntensity": 2,  "maxIntensity": 3 },
+
+    // Everything else (neutral-to-positive but not standout)
+    "tongue":        { "preference": 1.55, "sensitivity": 1.55, "prefIntensity": 5,  "maxIntensity": 8 },
+    "handFinger":    { "preference": 1.30, "sensitivity": 1.20, "prefIntensity": 3,  "maxIntensity": 6 },
+    "bellyButton":   { "preference": 1.50, "sensitivity": 1.50, "prefIntensity": 4,  "maxIntensity": 7 },
+    "kneeBack":      { "preference": 1.40, "sensitivity": 1.50, "prefIntensity": 3,  "maxIntensity": 6 },
+    "ankle":         { "preference": 1.05, "sensitivity": 1.00, "prefIntensity": 2,  "maxIntensity": 5 },
+    "wrist":         { "preference": 1.20, "sensitivity": 1.10, "prefIntensity": 2,  "maxIntensity": 5 },
+    "shoulder":      { "preference": 1.10, "sensitivity": 1.00, "prefIntensity": 3,  "maxIntensity": 6 },
+    "calf":          { "preference": 1.00, "sensitivity": 0.90, "prefIntensity": 3,  "maxIntensity": 6 },
+    "thighFront":    { "preference": 1.10, "sensitivity": 1.00, "prefIntensity": 4,  "maxIntensity": 7 },
+    "hip":           { "preference": 1.40, "sensitivity": 1.30, "prefIntensity": 4,  "maxIntensity": 7 },
+    "oblique":       { "preference": 1.45, "sensitivity": 1.35, "prefIntensity": 4,  "maxIntensity": 7 },
+    "backUpper":     { "preference": 1.30, "sensitivity": 1.20, "prefIntensity": 4,  "maxIntensity": 7 },
+    "bellyLower":    { "preference": 1.60, "sensitivity": 1.60, "prefIntensity": 4,  "maxIntensity": 7 },
+    "sternum":       { "preference": 1.30, "sensitivity": 1.20, "prefIntensity": 3,  "maxIntensity": 6 }
+}

@@ -1,0 +1,49 @@
+[
+    {
+        "itemType": "weapon",
+        "itemName": "generic sword",
+        "itemDescription": "common sword",
+        "itemSlot": "mainhand",
+        "combatStats": {
+            "weaponType": "sword",
+            "damageType": "slashing",
+            "twoHand": false,
+            "bonus": {
+                "chance": {
+                    "parry": 0,
+                    "dodge": 0,
+                    "block": 0,
+                    "hit": 0,
+                    "critical": 0
+                },
+                "value": {
+                    "block": 0,
+                    "piercing": 0,
+                    "slashing": 0,
+                    "crushing": 0,
+                    "critical": 0
+                }
+            },
+            "range": 1,
+            "weight": 0,
+            "balance": 0,
+            "durability": 1,
+            "sharpness": 1,
+            "degredationRate": 0.01
+        },
+        "lewdStats": {
+            "bonus": {
+                "allure": 0,
+                "charisma": 0,
+                "libido": 0,
+                "dominance": 0
+            }
+        },
+        "flags": {
+            "testFlag": "testFlag"
+        },
+        "misc": {
+            "testMisc": "testMisc"
+        }
+    }
+]

@@ -1,0 +1,27 @@
+# Dependencies
+node_modules/
+
+# Production builds
+dist/
+build/
+
+# Tauri
+src-tauri/target/
+src-tauri/.vscode/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Logs and caches
+*.log
+.vite/
+.cache/
+*.tsbuildinfo
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

@@ -1,0 +1,34 @@
+{
+    "itemType": "trinket",
+    "bonus": {
+        "chance": {
+            "parry": 0,
+            "dodge": 0.05,
+            "block": 0,
+            "hit": 0,
+            "critical": 0.05,
+            "resist": {
+                "omni": 0,
+                "light": 0,
+                "dark": 0,
+                "anima": 0,
+                "status": 0
+            }
+        },
+        "value": {
+            "piercing": 0,
+            "slashing": 0,
+            "crushing": 0,
+            "critical": 0.05,
+            "block": 0,
+            "armor": 0,
+            "resist": {
+                "omni": 0,
+                "light": 0,
+                "dark": 0,
+                "anima": 0,
+                "status": 0
+            }
+        }
+    }
+}

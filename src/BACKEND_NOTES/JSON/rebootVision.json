@@ -1,0 +1,649 @@
+[
+    {
+        "combatStats": {
+            "healthCap": 100.0,
+            "health": 100.0,
+            "staminaCap": 100.0,
+            "stamina": 100.0,
+            "strength": 7.0,
+            "magic": 3.0,
+            "reflex": 5.0
+        },
+        "lewdStats": {
+            "vaginalVirgin": true,
+            "analVirgin": true,
+            "oralVirgin": true,
+            "invertedNipples": false,
+            "romancesBoys": true,
+            "romancesGirls": false,
+            "libido": 1.0,
+            "arousal": 1.0,
+            "lust": 1.0,
+            "stimulation": 1.0,
+            "allure": 0,
+            "charisma": 0,
+            "vaginalFluidPersonalBaseRateMultiplier": 1.5,
+            "vaginalFluidPersonalArousalMultiplier": 1.2,
+            "pregnancy": {
+                "isPregnant": false,
+                "pregnancyProgress": 0,
+                "isLactating": false,
+                "twins": false,
+                "childIsFemale": false,
+                "twinIsFamale": false,
+                "personalLactationMultiplier": 1.5
+            },
+            "menstralCycle": {
+                "hasCycle": true,
+                "length": 28,
+                "currentDay": 1,
+                "ovulationDay": 14,
+                "personalBloodMultiplier": 1.2
+            },
+            "carryingSemen": {
+                "vaginal": 0,
+                "anal": 0,
+                "oral": 0
+            },
+            "semenOnBody": {
+                "hairBack": 0.0,
+                "hairFront": 0.0,
+                "hairSideLeft": 0.0,
+                "hairSideRight": 0.0,
+                "hairTop": 0.0,
+                "nose": 0.0,
+                "cheekLeft": 0.0,
+                "cheekRight": 0.0,
+                "lips": 0.0,
+                "chin": 0.0,
+                "neck": 0.0,
+                "nape": 0.0,
+                "clavicle": 0.0,
+                "armUpperRight": 0.0,
+                "armUpperLeft": 0.0,
+                "armLowerRight": 0.0,
+                "armLowerLeft": 0.0,
+                "handLeft": 0.0,
+                "handRight": 0.0,
+                "armpitLeft": 0.0,
+                "armpitRight": 0.0,
+                "breastLeft": 0.0,
+                "breastRight": 0.0,
+                "breastValley": 0.0,
+                "stomach": 0.0,
+                "pelvic": 0.0,
+                "pubic": 0.0,
+                "vaginal": 0.0,
+                "upperBack": 0.0,
+                "lowerBack": 0.0,
+                "buttock": 0.0,
+                "innerThigh": 0.0,
+                "legFrontUpperLeft": 0.0,
+                "legFrontUpperRight": 0.0,
+                "legFrontLowerLeft": 0.0,
+                "legFrontLowerRight": 0.0,
+                "legBackUpper": 0.0,
+                "legBackLower": 0.0,
+                "footLeft": 0.0,
+                "footRight": 0.0
+            },
+            "clothesSoilLevel": {
+                "hat": 0.0,
+                "shirtFrontUpper": 0.0,
+                "shirtFrontLower": 0.0,
+                "shirtBackUpper": 0.0,
+                "shirtBackLower": 0.0,
+                "pantsCrotch": 0.0,
+                "pantsButt": 0.0,
+                "panties": 0.0,
+                "pantsLegInnerThigh": 0.0,
+                "pantsLegFrontUpper": 0.0,
+                "pantsLegFrontLower": 0.0,
+                "pantsLegBackUpper": 0.0,
+                "pantsLegBackLower": 0.0,
+                "cloak": 0.0,
+                "cloakHood": 0.0,
+                "dressFrontUpper": 0.0,
+                "dressFrontLower": 0.0,
+                "dressBackUpper": 0.0,
+                "dressBackLower": 0.0,
+                "dressSkirtCrotch": 0.0,
+                "dressSkirtButt": 0.0,
+                "dressSkirtFrontUpper": 0.0,
+                "dressSkirtFrontLower": 0.0,
+                "dressSkirtBackUpper": 0.0,
+                "dressSkirtBackLower": 0.0,
+                "boots": 0.0
+            },
+            "simpleMeasurments": {
+                "breast": 0,
+                "waist": 0,
+                "hip": 0,
+                "butt": 0
+            },
+            "capacity": {
+                "vaginal": 0,
+                "anal": 0,
+                "oral": 0
+            },
+            "preferences": {
+                "thresholds": {
+                    "femaleClothedGeneralReceiving": "placeholder"
+                },
+                "receiving": {
+                    "breast": {
+                        "sensitivity": 1,
+                        "preference": 1
+                    },
+                    "nipple": {
+                        "sensitivity": 1,
+                        "preference": 1
+                    },
+                    "anus": {
+                        "sensitivity": 1,
+                        "preference": 1
+                    },
+                    "rectumShallow": {
+                        "sensitivity": 1,
+                        "preference": 1
+                    },
+                    "rectumDeep": {
+                        "sensitivity": 1,
+                        "preference": 1
+                    },
+                    "perinium": {
+                        "sensitivity": 1,
+                        "preference": 1
+                    },
+                    "clitoris": {
+                        "sensitivity": 1,
+                        "preference": 1
+                    },
+                    "labia": {
+                        "sensitivity": 1,
+                        "preference": 1
+                    },
+                    "vaginaShallow": {
+                        "sensitivity": 1,
+                        "preference": 1
+                    },
+                    "vaginaDeep": {
+                        "sensitivity": 1,
+                        "preference": 1
+                    },
+                    "thighInner": {
+                        "sensitivity": 1,
+                        "preference": 1
+                    },
+                    "thighBack": {
+                        "sensitivity": 1,
+                        "preference": 1
+                    },
+                    "thighFront": {
+                        "sensitivity": 1,
+                        "preference": 1
+                    },
+                    "calf": {
+                        "sensitivity": 1,
+                        "preference": 1
+                    },
+                    "kneeFront": {
+                        "sensitivity": 1,
+                        "preference": 1
+                    },
+                    "kneeBack": {
+                        "sensitivity": 1,
+                        "preference": 1
+                    },
+                    "ankle": {
+                        "sensitivity": 1,
+                        "preference": 1
+                    },
+                    "foot": {
+                        "sensitivity": 1,
+                        "preference": 1
+                    },
+                    "toes": {
+                        "sensitivity": 1,
+                        "preference": 1
+                    },
+                    "ear": {
+                        "sensitivity": 1,
+                        "preference": 1
+                    },
+                    "nose": {
+                        "sensitivity": 1,
+                        "preference": 1
+                    },
+                    "lips": {
+                        "sensitivity": 1,
+                        "preference": 1
+                    },
+                    "tongue": {
+                        "sensitivity": 1,
+                        "preference": 1
+                    },
+                    "cheek": {
+                        "sensitivity": 1,
+                        "preference": 1
+                    },
+                    "crown": {
+                        "sensitivity": 1,
+                        "preference": 1
+                    },
+                    "hair": {
+                        "sensitivity": 1,
+                        "preference": 1
+                    },
+                    "throat": {
+                        "sensitivity": 1,
+                        "preference": 1
+                    },
+                    "nape": {
+                        "sensitivity": 1,
+                        "preference": 1
+                    },
+                    "clavicle": {
+                        "sensitivity": 1,
+                        "preference": 1
+                    },
+                    "buttock": {
+                        "sensitivity": 1,
+                        "preference": 1
+                    },
+                    "hip": {
+                        "sensitivity": 1,
+                        "preference": 1
+                    },
+                    "naval": {
+                        "sensitivity": 1,
+                        "preference": 1
+                    },
+                    "lowerBack": {
+                        "sensitivity": 1,
+                        "preference": 1
+                    },
+                    "spine": {
+                        "sensitivity": 1,
+                        "preference": 1
+                    },
+                    "shoulderBlade": {
+                        "sensitivity": 1,
+                        "preference": 1
+                    },
+                    "shoulderTraps": {
+                        "sensitivity": 1,
+                        "preference": 1
+                    },
+                    "upperArm": {
+                        "sensitivity": 1,
+                        "preference": 1
+                    },
+                    "innerArm": {
+                        "sensitivity": 1,
+                        "preference": 1
+                    },
+                    "armpit": {
+                        "sensitivity": 1,
+                        "preference": 1
+                    },
+                    "elbowInner": {
+                        "sensitivity": 1,
+                        "preference": 1
+                    },
+                    "forearmInner": {
+                        "sensitivity": 1,
+                        "preference": 1
+                    },
+                    "forearmOuter": {
+                        "sensitivity": 1,
+                        "preference": 1
+                    },
+                    "wrist": {
+                        "sensitivity": 1,
+                        "preference": 1
+                    },
+                    "hand": {
+                        "sensitivity": 1,
+                        "preference": 1
+                    },
+                    "palm": {
+                        "sensitivity": 1,
+                        "preference": 1
+                    },
+                    "fingers": {
+                        "sensitivity": 1,
+                        "preference": 1
+                    }
+                },
+                "giving": {
+                    "breast": {
+                        "touchUnlocked": false,
+                        "oralUnlocked": false,
+                        "touchCompatability": 1,
+                        "oralCompatability": 1
+                    },
+                    "nipple": {
+                        "touchUnlocked": false,
+                        "oralUnlocked": false,
+                        "touchCompatability": 1,
+                        "oralCompatability": 1
+                    },
+                    "anus": {
+                        "touchUnlocked": false,
+                        "oralUnlocked": false,
+                        "touchCompatability": 1,
+                        "oralCompatability": 1
+                    },
+                    "rectumShallow": {
+                        "touchUnlocked": false,
+                        "oralUnlocked": false,
+                        "touchCompatability": 1,
+                        "oralCompatability": 1
+                    },
+                    "rectumDeep": {
+                        "touchUnlocked": false,
+                        "oralUnlocked": false,
+                        "touchCompatability": 1,
+                        "oralCompatability": 1
+                    },
+                    "perinium": {
+                        "touchUnlocked": false,
+                        "oralUnlocked": false,
+                        "touchCompatability": 1,
+                        "oralCompatability": 1
+                    },
+                    "penisHead": {
+                        "touchUnlocked": false,
+                        "oralUnlocked": false,
+                        "touchCompatability": 1,
+                        "oralCompatability": 1
+                    },
+                    "penisShaft": {
+                        "touchUnlocked": false,
+                        "oralUnlocked": false,
+                        "touchCompatability": 1,
+                        "oralCompatability": 1
+                    },
+                    "testicles": {
+                        "touchUnlocked": false,
+                        "oralUnlocked": false,
+                        "touchCompatability": 1,
+                        "oralCompatability": 1
+                    },
+                    "clitoris": {
+                        "touchUnlocked": false,
+                        "oralUnlocked": false,
+                        "touchCompatability": 1,
+                        "oralCompatability": 1
+                    },
+                    "labia": {
+                        "touchUnlocked": false,
+                        "oralUnlocked": false,
+                        "touchCompatability": 1,
+                        "oralCompatability": 1
+                    },
+                    "vaginaShallow": {
+                        "touchUnlocked": false,
+                        "oralUnlocked": false,
+                        "touchCompatability": 1,
+                        "oralCompatability": 1
+                    },
+                    "vaginaDeep": {
+                        "touchUnlocked": false,
+                        "oralUnlocked": false,
+                        "touchCompatability": 1,
+                        "oralCompatability": 1
+                    },
+                    "thighInner": {
+                        "touchUnlocked": false,
+                        "oralUnlocked": false,
+                        "touchCompatability": 1,
+                        "oralCompatability": 1
+                    },
+                    "thighBack": {
+                        "touchUnlocked": false,
+                        "oralUnlocked": false,
+                        "touchCompatability": 1,
+                        "oralCompatability": 1
+                    },
+                    "thighFront": {
+                        "touchUnlocked": false,
+                        "oralUnlocked": false,
+                        "touchCompatability": 1,
+                        "oralCompatability": 1
+                    },
+                    "calf": {
+                        "touchUnlocked": false,
+                        "oralUnlocked": false,
+                        "touchCompatability": 1,
+                        "oralCompatability": 1
+                    },
+                    "kneeFront": {
+                        "touchUnlocked": false,
+                        "oralUnlocked": false,
+                        "touchCompatability": 1,
+                        "oralCompatability": 1
+                    },
+                    "kneeBack": {
+                        "touchUnlocked": false,
+                        "oralUnlocked": false,
+                        "touchCompatability": 1,
+                        "oralCompatability": 1
+                    },
+                    "ankle": {
+                        "touchUnlocked": false,
+                        "oralUnlocked": false,
+                        "touchCompatability": 1,
+                        "oralCompatability": 1
+                    },
+                    "foot": {
+                        "touchUnlocked": false,
+                        "oralUnlocked": false,
+                        "touchCompatability": 1,
+                        "oralCompatability": 1
+                    },
+                    "toes": {
+                        "touchUnlocked": false,
+                        "oralUnlocked": false,
+                        "touchCompatability": 1,
+                        "oralCompatability": 1
+                    },
+                    "ear": {
+                        "touchUnlocked": false,
+                        "oralUnlocked": false,
+                        "touchCompatability": 1,
+                        "oralCompatability": 1
+                    },
+                    "nose": {
+                        "touchUnlocked": false,
+                        "oralUnlocked": false,
+                        "touchCompatability": 1,
+                        "oralCompatability": 1
+                    },
+                    "lips": {
+                        "touchUnlocked": false,
+                        "oralUnlocked": false,
+                        "touchCompatability": 1,
+                        "oralCompatability": 1
+                    },
+                    "tongue": {
+                        "touchUnlocked": false,
+                        "oralUnlocked": false,
+                        "touchCompatability": 1,
+                        "oralCompatability": 1
+                    },
+                    "cheek": {
+                        "touchUnlocked": false,
+                        "oralUnlocked": false,
+                        "touchCompatability": 1,
+                        "oralCompatability": 1
+                    },
+                    "crown": {
+                        "touchUnlocked": false,
+                        "oralUnlocked": false,
+                        "touchCompatability": 1,
+                        "oralCompatability": 1
+                    },
+                    "hair": {
+                        "touchUnlocked": false,
+                        "oralUnlocked": false,
+                        "touchCompatability": 1,
+                        "oralCompatability": 1
+                    },
+                    "throat": {
+                        "touchUnlocked": false,
+                        "oralUnlocked": false,
+                        "touchCompatability": 1,
+                        "oralCompatability": 1
+                    },
+                    "nape": {
+                        "touchUnlocked": false,
+                        "oralUnlocked": false,
+                        "touchCompatability": 1,
+                        "oralCompatability": 1
+                    },
+                    "clavicle": {
+                        "touchUnlocked": false,
+                        "oralUnlocked": false,
+                        "touchCompatability": 1,
+                        "oralCompatability": 1
+                    },
+                    "buttock": {
+                        "touchUnlocked": false,
+                        "oralUnlocked": false,
+                        "touchCompatability": 1,
+                        "oralCompatability": 1
+                    },
+                    "hip": {
+                        "touchUnlocked": false,
+                        "oralUnlocked": false,
+                        "touchCompatability": 1,
+                        "oralCompatability": 1
+                    },
+                    "naval": {
+                        "touchUnlocked": false,
+                        "oralUnlocked": false,
+                        "touchCompatability": 1,
+                        "oralCompatability": 1
+                    },
+                    "lowerBack": {
+                        "touchUnlocked": false,
+                        "oralUnlocked": false,
+                        "touchCompatability": 1,
+                        "oralCompatability": 1
+                    },
+                    "spine": {
+                        "touchUnlocked": false,
+                        "oralUnlocked": false,
+                        "touchCompatability": 1,
+                        "oralCompatability": 1
+                    },
+                    "shoulderBlade": {
+                        "touchUnlocked": false,
+                        "oralUnlocked": false,
+                        "touchCompatability": 1,
+                        "oralCompatability": 1
+                    },
+                    "shoulderTraps": {
+                        "touchUnlocked": false,
+                        "oralUnlocked": false,
+                        "touchCompatability": 1,
+                        "oralCompatability": 1
+                    },
+                    "upperArm": {
+                        "touchUnlocked": false,
+                        "oralUnlocked": false,
+                        "touchCompatability": 1,
+                        "oralCompatability": 1
+                    },
+                    "innerArm": {
+                        "touchUnlocked": false,
+                        "oralUnlocked": false,
+                        "touchCompatability": 1,
+                        "oralCompatability": 1
+                    },
+                    "armpit": {
+                        "touchUnlocked": false,
+                        "oralUnlocked": false,
+                        "touchCompatability": 1,
+                        "oralCompatability": 1
+                    },
+                    "elbowInner": {
+                        "touchUnlocked": false,
+                        "oralUnlocked": false,
+                        "touchCompatability": 1,
+                        "oralCompatability": 1
+                    },
+                    "forearmInner": {
+                        "touchUnlocked": false,
+                        "oralUnlocked": false,
+                        "touchCompatability": 1,
+                        "oralCompatability": 1
+                    },
+                    "forearmOuter": {
+                        "touchUnlocked": false,
+                        "oralUnlocked": false,
+                        "touchCompatability": 1,
+                        "oralCompatability": 1
+                    },
+                    "wrist": {
+                        "touchUnlocked": false,
+                        "oralUnlocked": false,
+                        "touchCompatability": 1,
+                        "oralCompatability": 1
+                    },
+                    "hand": {
+                        "touchUnlocked": false,
+                        "oralUnlocked": false,
+                        "touchCompatability": 1,
+                        "oralCompatability": 1
+                    },
+                    "palm": {
+                        "touchUnlocked": false,
+                        "oralUnlocked": false,
+                        "touchCompatability": 1,
+                        "oralCompatability": 1
+                    },
+                    "fingers": {
+                        "touchUnlocked": false,
+                        "oralUnlocked": false,
+                        "touchCompatability": 1,
+                        "oralCompatability": 1
+                    }
+                }
+            },
+            "misc": {
+                "flags": ""
+            }
+        },
+        "tradeSkills": {
+            "generalSurvival": 0,
+            "fishing": 0,
+            "skinning": 0,
+            "herbalism": 0,
+            "carving": 0,
+            "laundry": 0,
+            "horseTending": 0,
+            "pegasusTending": 0,
+            "sharpeningWeapons": 0,
+            "rustPrevention": 0,
+            "buildingFire": 0,
+            "cooking": 0,
+            "barter": 0,
+            "stealing": 0,
+            "spying": 0,
+            "lying": 0,
+            "recipes": [
+                "grilledFish",
+                "roastedMeat",
+                "boiledVegetables",
+                "herbalTea",
+                "spicySoup"
+            ]
+        },
+        "mentalStats": {
+            "morale": "normal"
+        }
+    }
+]

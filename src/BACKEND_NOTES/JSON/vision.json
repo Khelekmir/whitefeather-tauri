@@ -1,0 +1,307 @@
+{
+    "static": {
+        "allure": 1,
+        "libido": 2,
+        "charisma": 1,
+        "dominance": 1,
+        "experience": {
+            "anal": {
+                "first": "none",
+                "virgin": true,
+                "partners": 0,
+                "encounters": 0
+            },
+            "vaginal": {
+                "first": "none",
+                "virgin": true,
+                "partners": 0,
+                "encounters": 0
+            },
+            "oralPitchMale": {
+                "first": "none",
+                "virgin": true,
+                "partners": 0,
+                "encounters": 0
+            },
+            "oralPitchFemale": {
+                "first": "none",
+                "virgin": true,
+                "partners": 0,
+                "encounters": 0
+            },
+            "oralReceiveMale": {
+                "first": "none",
+                "virgin": true,
+                "partners": 0,
+                "encounters": 0
+            },
+            "oralReceiveFemale": {
+                "first": "none",
+                "virgin": true,
+                "partners": 0,
+                "encounters": 0
+            }
+        },
+        "submissive": true,
+        "whitefeather": false,
+        "attractedToBoys": true,
+        "attractedToGirls": false,
+        "ovulationCycleLength": 28
+    },
+    "dynamic": {
+        "lust": 0,
+        "arousal": 0,
+        "timeSince": {
+            "sex": 0,
+            "kiss": 0,
+            "fondle": 0,
+            "orgasm": 0,
+            "embrace": 0,
+            "massage": 0,
+            "masturbation": 0
+        },
+        "ovulationCycleCurrent": 0
+    },
+    "skill": {
+        "lips": {"talent": 1, "experience": 1},
+        "mouth": {"talent": 1, "experience": 1},
+        "tongue": {"talent": 1, "experience": 1},
+        "teeth": {"talent": 1, "experience": 1},
+        "hand": {"talent": 1, "experience": 1},
+        "handFinger": {"talent": 1, "experience": 1},
+        "food": {"talent": 1, "experience": 1},
+        "breast": {"talent": 1, "experience": 1},
+        "genital": {"talent": 1, "experience": 1},
+        "thighs": {"talent": 1, "experience": 1}
+    },
+    "itemizedLewd": {
+        "ear": {
+            "preference": 1,
+            "sensitivity": 1
+        },
+        "hip": {
+            "preference": 1,
+            "sensitivity": 1
+        },
+        "anus": {
+            "preference": 1,
+            "sensitivity": 1
+        },
+        "calf": {
+            "preference": 1,
+            "sensitivity": 1
+        },
+        "chin": {
+            "preference": 1,
+            "sensitivity": 1
+        },
+        "head": {
+            "preference": 1,
+            "sensitivity": 1
+        },
+        "lips": {
+            "preference": 1,
+            "sensitivity": 1
+        },
+        "nose": {
+            "preference": 1,
+            "sensitivity": 1
+        },
+        "ankle": {
+            "preference": 1,
+            "sensitivity": 1
+        },
+        "wrist": {
+            "preference": 1,
+            "sensitivity": 1
+        },
+        "areola": {
+            "preference": 1,
+            "sensitivity": 1
+        },
+        "breast": {
+            "preference": 1,
+            "sensitivity": 1
+        },
+        "cheeks": {
+            "preference": 1,
+            "sensitivity": 1
+        },
+        "nipple": {
+            "preference": 1,
+            "sensitivity": 1
+        },
+        "throat": {
+            "preference": 1,
+            "sensitivity": 1
+        },
+        "tongue": {
+            "preference": 1,
+            "sensitivity": 1
+        },
+        "footToe": {
+            "preference": 1,
+            "sensitivity": 1
+        },
+        "footTop": {
+            "preference": 1,
+            "sensitivity": 1
+        },
+        "oblique": {
+            "preference": 1,
+            "sensitivity": 1
+        },
+        "sternum": {
+            "preference": 1,
+            "sensitivity": 1
+        },
+        "urethra": {
+            "preference": 1,
+            "sensitivity": 1
+        },
+        "armLower": {
+            "preference": 1,
+            "sensitivity": 1
+        },
+        "armUpper": {
+            "preference": 1,
+            "sensitivity": 1
+        },
+        "clavicle": {
+            "preference": 1,
+            "sensitivity": 1
+        },
+        "clitoris": {
+            "preference": 1,
+            "sensitivity": 1
+        },
+        "forehead": {
+            "preference": 1,
+            "sensitivity": 1
+        },
+        "handBack": {
+            "preference": 1,
+            "sensitivity": 1
+        },
+        "handPalm": {
+            "preference": 1,
+            "sensitivity": 1
+        },
+        "kneeBack": {
+            "preference": 1,
+            "sensitivity": 1
+        },
+        "neckNape": {
+            "preference": 1,
+            "sensitivity": 1
+        },
+        "neckSide": {
+            "preference": 1,
+            "sensitivity": 1
+        },
+        "perinium": {
+            "preference": 1,
+            "sensitivity": 1
+        },
+        "shoulder": {
+            "preference": 1,
+            "sensitivity": 1
+        },
+        "backLower": {
+            "preference": 1,
+            "sensitivity": 1
+        },
+        "backUpper": {
+            "preference": 1,
+            "sensitivity": 1
+        },
+        "kneeFront": {
+            "preference": 1,
+            "sensitivity": 1
+        },
+        "monsVenus": {
+            "preference": 1,
+            "sensitivity": 1
+        },
+        "mouthDeep": {
+            "preference": 1,
+            "sensitivity": 1
+        },
+        "thighBack": {
+            "preference": 1,
+            "sensitivity": 1
+        },
+        "bellyLower": {
+            "preference": 1,
+            "sensitivity": 1
+        },
+        "bellyUpper": {
+            "preference": 1,
+            "sensitivity": 1
+        },
+        "footBottom": {
+            "preference": 1,
+            "sensitivity": 1
+        },
+        "handFinger": {
+            "preference": 1,
+            "sensitivity": 1
+        },
+        "rectumDeep": {
+            "preference": 1,
+            "sensitivity": 1
+        },
+        "thighFront": {
+            "preference": 1,
+            "sensitivity": 1
+        },
+        "thighInner": {
+            "preference": 1,
+            "sensitivity": 1
+        },
+        "vaginaDeep": {
+            "preference": 1,
+            "sensitivity": 1
+        },
+        "bellyButton": {
+            "preference": 1,
+            "sensitivity": 1
+        },
+        "buttockMain": {
+            "preference": 1,
+            "sensitivity": 1
+        },
+        "iliacRegion": {
+            "preference": 1,
+            "sensitivity": 1
+        },
+        "labiaMajora": {
+            "preference": 1,
+            "sensitivity": 1
+        },
+        "labiaMinora": {
+            "preference": 1,
+            "sensitivity": 1
+        },
+        "mouthThroat": {
+            "preference": 1,
+            "sensitivity": 1
+        },
+        "mouthShallow": {
+            "preference": 1,
+            "sensitivity": 1
+        },
+        "rectumShallow": {
+            "preference": 1,
+            "sensitivity": 1
+        },
+        "vaginaShallow": {
+            "preference": 1,
+            "sensitivity": 1
+        },
+        "buttockUnderside": {
+            "preference": 1,
+            "sensitivity": 1
+        }
+    }
+}

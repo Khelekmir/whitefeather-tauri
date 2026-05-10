@@ -1,0 +1,1 @@
+{"shieldType":"targe","material":"wood","bonus":{"chance":{"parry":0.1,"dodge":0.1,"block":0.1,"resist":{"omni":0.1,"light":0.1,"dark":0.1,"anima":0.1,"status":0.1}},"value":{"block":0.1,"armor":0.1,"resist":{"omni":0.01,"light":0.01,"dark":0.01,"anima":0.01,"status":0.01}}},"durability":1}
