@@ -1,29 +1,39 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useGameStore } from './store/gameStore';
 
 function App() {
   const {
     gameState,
-    saveGame,
+    saveGameAutosave,
     loadGame,
-    updateUnit
+    saveGameManual,
+    listSaves,
+    // updateUnit
   } = useGameStore();
 
-  // Optional: Auto-load on startup
+  const [saveFiles, setSaveFiles] = useState<string[]>([]);
+
+
+  // Auto-load on startup
   useEffect(() => {
     loadGame();
+    refreshSaves();
   }, [loadGame]);
 
-  const handleManualSave = async () => {
+  const refreshSaves = async () => {
+    const files = await listSaves();
+    setSaveFiles(files);
+  };
+  const handleChapterSave = async () => {
     const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
-    const filename = `chapter_${gameState.chapter}_save_${timestamp}.json`;
-    await useGameStore.getState().saveGameNamed(filename);
+    const filename = `chapter_${gameState.chapter}_${timestamp}.json`;
+    await saveGameManual(filename);
+    refreshSaves();
   };
 
-  const handleListSaves = async () => {
-    const saves = await useGameStore.getState().listSaves();
-    console.log("Available saves:", saves);
-    // TODO: Show in a modal later
+  const handleLoadSave = async (filename: string) => {
+    await loadGame(filename);
+    refreshSaves();
   };
 
   const addTestUnit = () => {
@@ -41,9 +51,7 @@ function App() {
       stress: 15,
       traits: ["determined", "elegant"],
     };
-    console.log("Adding test unit:", newUnit);
 
-    // Add to store (you'll expand this logic later)
     useGameStore.setState((state) => ({
       gameState: {
         ...state.gameState,
@@ -57,37 +65,37 @@ function App() {
       <h1>Whitefeather — Development Build</h1>
       <p>Chapter {gameState.chapter} • Turn {gameState.turn} • Phase: {gameState.phase}</p>
 
-      <div style={{ margin: '20px 0', display: 'flex', gap: '12px' }}>
-        <button onClick={saveGame} style={{ padding: '12px 20px', fontSize: '16px' }}>
-          💾 Save Game (Autosave)
-        </button>
-
-        <button onClick={loadGame} style={{ padding: '12px 20px', fontSize: '16px' }}>
-          📂 Load Game
-        </button>
-
-        <button onClick={addTestUnit} style={{ padding: '12px 20px', fontSize: '16px' }}>
-          ➕ Add Test Unit (Elara)
-        </button>
+      <div style={{ margin: '20px 0', display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+        <button onClick={saveGameAutosave}>💾 Autosave</button>
+        <button onClick={handleChapterSave}>📖 Chapter Save</button>
+        <button onClick={addTestUnit}>➕ Add Test Unit</button>
+        <button onClick={refreshSaves}>🔄 Refresh List</button>
       </div>
 
+      {/* Save Files List */}
+      <div>
+        <h3>Available Saves ({saveFiles.length})</h3>
+        <ul style={{ maxHeight: '400px', overflowY: 'auto' }}>
+          {saveFiles.map(file => (
+            <li key={file} style={{ margin: '6px 0' }}>
+              <button
+                onClick={() => handleLoadSave(file)}
+                style={{ marginRight: '12px' }}
+              >
+                📂 Load
+              </button>
+              <code>{file}</code>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      {/* Current State */}
       <div style={{ marginTop: '30px' }}>
-        <h3>Current Units ({gameState.units.length})</h3>
-        <pre style={{
-          background: '#1e1e1e',
-          color: '#ddd',
-          padding: '15px',
-          borderRadius: '6px',
-          maxHeight: '400px',
-          overflow: 'auto'
-        }}>
-          {JSON.stringify(gameState.units, null, 2)}
+        <h3>Current Game State</h3>
+        <pre style={{ background: '#1e1e1e', color: '#ddd', padding: '15px', borderRadius: '6px' }}>
+          {JSON.stringify(gameState, null, 2)}
         </pre>
-      </div>
-
-      <div style={{ marginTop: '30px', fontSize: '14px', color: '#888' }}>
-        <strong>Tip:</strong> Click Save → then Load to test persistence.<br />
-        Saves are stored in your AppData folder as <code>autosave.json</code>
       </div>
     </div>
   );

@@ -50,7 +50,7 @@ pub struct GameState {
 }
 
 #[tauri::command]
-fn save_game(app: AppHandle, state: GameState) -> Result<(), String> {
+fn save_game_autosave(app: AppHandle, state: GameState) -> Result<(), String> {
     let saves_dir = app
         .path()
         .app_data_dir()
@@ -68,14 +68,31 @@ fn save_game(app: AppHandle, state: GameState) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn load_game(app: AppHandle) -> Result<GameState, String> {
-    let file_path = app
+fn load_game(app: AppHandle, filename: Option<String>) -> Result<GameState, String> {
+    let saves_dir = app
         .path()
         .app_data_dir()
         .map_err(|e| e.to_string())?
-        .join("saves/autosave.json");
+        .join("saves");
+
+    let file_path = match filename {
+        Some(name) => {
+            // Load a specific save file
+            let clean_name = if name.ends_with(".json") {
+                name
+            } else {
+                format!("{}.json", name)
+            };
+            saves_dir.join(clean_name)
+        }
+        None => {
+            // Load the rolling autosave
+            saves_dir.join("autosave.json")
+        }
+    };
 
     if !file_path.exists() {
+        println!("⚠️ Save file not found: {}", file_path.display());
         return Ok(GameState::default());
     }
 
@@ -87,7 +104,7 @@ fn load_game(app: AppHandle) -> Result<GameState, String> {
 }
 
 #[tauri::command]
-fn save_game_named(app: AppHandle, filename: String, state: GameState) -> Result<(), String> {
+fn save_game_manual(app: AppHandle, filename: String, state: GameState) -> Result<(), String> {
     let saves_dir = app
         .path()
         .app_data_dir()
@@ -134,9 +151,9 @@ fn main() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
-            save_game,
+            save_game_autosave,
             load_game,
-            save_game_named,
+            save_game_manual,
             list_saves
         ])
         .run(tauri::generate_context!())
