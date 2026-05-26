@@ -1,0 +1,52 @@
+**Whitefeather Tauri Project — Progress Summary (as of May 2026)**
+
+### Current Tech Stack
+- **Frontend**: React + TypeScript + Vite (Tauri)
+- **Backend**: Rust (Tauri)
+- **State Management**: Zustand
+- **Persistence**: JSON file-based saves via Rust (no database)
+
+### Core Features Implemented
+- **Save System**
+  - Rolling **autosave** (`autosave.json`)
+  - Manual / **Chapter saves** with custom filenames (e.g. `chapter_3_2026-05-10T...json`)
+  - **List all available saves**
+  - **Load specific save** by filename
+  - Saves stored in: `%appdata%\whitefeather\saves\`
+
+- **GameState Structure**
+  - Basic `GameState` (chapter, turn, phase, mapId, gold, inventory, storyFlags, etc.)
+  - `Unit` model with stats + roleplay/adult elements (`relationship`, `arousal`, `stress`, `traits`)
+  - Serialization between TypeScript ↔ Rust working with camelCase
+
+- **UI / Development Tools**
+  - Simple development UI with:
+    - Autosave button
+    - Chapter Save button
+    - Custom named save
+    - List of saves with individual Load buttons
+    - Add test unit button
+    - Live view of current game state
+
+- **Rust Commands Implemented**
+  - `save_game_autosave`
+  - `save_game_manual` / `save_game_named`
+  - `load_game` (supports both autosave and named files)
+  - `list_saves`
+  - `delete_save`
+
+---
+
+### Next Priorities
+1. Character Data Viewer (separate page)
+2. Character Creator, Editor
+3. Item Creator, Editor
+4. Item Management
+5. Associate Items with Characters
+6. Proper UI styling (Tailwind)
+
+---
+
+This gives us a solid, working foundation for a Fire Emblem-style game with chapter saves + rolling autosaves. The persistence layer is now flexible enough to support development iteration.
+
+Let me know when you're ready to continue from here!

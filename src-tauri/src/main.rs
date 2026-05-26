@@ -104,6 +104,20 @@ fn load_game(app: AppHandle, filename: Option<String>) -> Result<GameState, Stri
 }
 
 #[tauri::command]
+fn delete_game(app: AppHandle, filename: String) -> Result<(), String> {
+    let saves_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("saves");
+
+    let file_path = saves_dir.join(filename);
+    fs::remove_file(&file_path).map_err(|e| e.to_string())?;
+    println!("✅ Game deleted: {}", file_path.display());
+    Ok(())
+}
+
+#[tauri::command]
 fn save_game_manual(app: AppHandle, filename: String, state: GameState) -> Result<(), String> {
     let saves_dir = app
         .path()
@@ -153,6 +167,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             save_game_autosave,
             load_game,
+            delete_game,
             save_game_manual,
             list_saves
         ])

@@ -14,6 +14,7 @@ interface GameStore {
   saveGameAutosave: () => Promise<void>;           // Rolling autosave
   saveGameManual: (filename: string) => Promise<void>; // Chapter / named saves
   loadGame: (filename?: string) => Promise<void>;  // Load autosave or specific file
+  deleteGame: (filename: string) => Promise<void>; // Delete specific save
   listSaves: () => Promise<string[]>;              // List all save files
 }
 
@@ -87,6 +88,15 @@ export const useGameStore = create<GameStore>((set, get) => ({
       set({ gameState: loaded });
     } catch (err) {
       console.error('Load failed:', err);
+    }
+  },
+
+  deleteGame: async (filename: string) => {
+    try {
+      await invoke('delete_game', { filename });
+      console.log(`✅ Deleted: ${filename}`);
+    } catch (err) {
+      console.error(`Failed to delete ${filename}:`, err);
     }
   },
 
