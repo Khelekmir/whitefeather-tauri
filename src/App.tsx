@@ -1,7 +1,9 @@
-import { BrowserRouter as Router, Routes, Route, Link, useLocation } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom';
 import { useEffect } from 'react';
-import DevBuild from './DevBuild';           // We'll create this
-import CharacterList from './CharacterList'; // We'll create this
+import DevBuild from './DevBuild';
+import CharacterList from './CharacterList';
+import CharacterDetail from './CharacterDetail';
+import Battleground from './Battleground';
 import { useGameStore } from './store/gameStore';
 
 function TitleScreen() {
@@ -29,7 +31,12 @@ function TitleScreen() {
         <Link to="/characters" style={menuButtonStyle}>
           Character List
         </Link>
-        {/* Future options will go here */}
+        <Link to="/characters/detailed/unit_lyn" style={menuButtonStyle}>
+          Character Detail (combat)
+        </Link>
+        <Link to="/battleground" style={menuButtonStyle}>
+          Battleground
+        </Link>
       </div>
 
       <p style={{ marginTop: '4rem', opacity: 0.6, fontSize: '0.9rem' }}>
@@ -67,6 +74,8 @@ function App() {
         <Route path="/" element={<TitleScreen />} />
         <Route path="/dev" element={<DevBuild />} />
         <Route path="/characters" element={<CharacterList />} />
+        <Route path="/characters/detailed/:id" element={<CharacterDetail />} />
+        <Route path="/battleground" element={<Battleground />} />
       </Routes>
     </Router>
   );

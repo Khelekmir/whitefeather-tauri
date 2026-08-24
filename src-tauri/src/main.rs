@@ -4,37 +4,11 @@ mod models;
 mod commands;
 
 use crate::models::game_state::GameState;
-
-// ### STRUCTS ###
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::fs;
 use tauri::{AppHandle, Manager};
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
-pub struct Position {
-    pub x: i32,
-    pub y: i32,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct Unit {
-    pub id: String,
-    pub name: String,
-    pub class: String,
-    pub level: u32,
-    pub hp: u32,
-    pub maxHp: u32,
-    pub position: Position,
-    pub allegiance: String,
-    pub relationship: i32,
-    pub arousal: u32,
-    pub stress: u32,
-    pub traits: Vec<String>,
-}
-
 // ### GAME FUNCTIONS ###
+
 #[tauri::command]
 fn save_game_autosave(app: AppHandle, state: GameState) -> Result<(), String> {
     let saves_dir = app
@@ -63,7 +37,6 @@ fn load_game(app: AppHandle, filename: Option<String>) -> Result<GameState, Stri
 
     let file_path = match filename {
         Some(name) => {
-            // Load a specific save file
             let clean_name = if name.ends_with(".json") {
                 name
             } else {
@@ -71,19 +44,22 @@ fn load_game(app: AppHandle, filename: Option<String>) -> Result<GameState, Stri
             };
             saves_dir.join(clean_name)
         }
-        None => {
-            // Load the rolling autosave
-            saves_dir.join("autosave.json")
-        }
+        None => saves_dir.join("autosave.json"),
     };
 
     if !file_path.exists() {
         println!("⚠️ Save file not found: {}", file_path.display());
-        return Ok(GameState::default());
+        return Err(format!("Save file not found: {}", file_path.display()));
     }
 
     let json = fs::read_to_string(&file_path).map_err(|e| e.to_string())?;
-    let state: GameState = serde_json::from_str(&json).map_err(|e| e.to_string())?;
+    let state: GameState = serde_json::from_str(&json).map_err(|e| {
+        format!(
+            "Failed to parse save {}: {}",
+            file_path.display(),
+            e
+        )
+    })?;
 
     println!("✅ Game loaded: {}", file_path.display());
     Ok(state)
@@ -97,7 +73,10 @@ fn delete_game(app: AppHandle, filename: String) -> Result<(), String> {
         .map_err(|e| e.to_string())?
         .join("saves");
 
-    let file_path = saves_dir.join(filename);
+    let file_path = saves_dir.join(&filename);
+    if !file_path.exists() {
+        return Err(format!("Save file not found: {}", filename));
+    }
     fs::remove_file(&file_path).map_err(|e| e.to_string())?;
     println!("✅ Game deleted: {}", file_path.display());
     Ok(())
@@ -113,7 +92,14 @@ fn save_game_manual(app: AppHandle, filename: String, state: GameState) -> Resul
 
     fs::create_dir_all(&saves_dir).map_err(|e| e.to_string())?;
 
-    let file_path = saves_dir.join(filename);
+    // Ensure .json extension so list_saves picks it up consistently
+    let clean_name = if filename.ends_with(".json") {
+        filename
+    } else {
+        format!("{}.json", filename)
+    };
+
+    let file_path = saves_dir.join(&clean_name);
     let json = serde_json::to_string_pretty(&state).map_err(|e| e.to_string())?;
 
     fs::write(&file_path, json).map_err(|e| e.to_string())?;
@@ -143,6 +129,7 @@ fn list_saves(app: AppHandle) -> Result<Vec<String>, String> {
             }
         }
     }
+    files.sort();
     Ok(files)
 }
 

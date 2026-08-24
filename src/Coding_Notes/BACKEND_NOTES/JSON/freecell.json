@@ -1,0 +1,301 @@
+{
+    "base": {
+        "luck": 30,
+        "magic": 9,
+        "skill": 10,
+        "speed": 12,
+        "health": 21,
+        "reflex": 7,
+        "agility": 7,
+        "defense": 5,
+        "movement": 5,
+        "strength": 7,
+        "resistance": 8,
+        "staminaCap": 52,
+        "constitution": 5,
+        "healthCurrent": 21,
+        "staminaCurrent": 52
+    },
+    "weaponSkill": {
+        "1hAxe": 1,
+        "2hAxe": 1,
+        "flail": 1,
+        "lance": 1,
+        "staff": 1,
+        "1hMace": 1,
+        "2hMace": 1,
+        "dagger": 10,
+        "shield": 1,
+        "1hSword": 1,
+        "2hSword": 1,
+        "javelin": 1,
+        "longbow": 1,
+        "shortbow": 1,
+        "ilianLance": 1,
+        "recurveBow": 1,
+        "unequipped": 10,
+        "throwingAxe": 1,
+        "throwingKnife": 1
+    },
+    "itemizedHealth": {
+        "anus": {
+            "bleed": 0,
+            "health": 1,
+            "dressed": false,
+            "vulnerary": false,
+            "bleedMinutes": 0
+        },
+        "face": {
+            "bleed": 0,
+            "health": 1,
+            "dressed": false,
+            "vulnerary": false,
+            "bleedMinutes": 0
+        },
+        "head": {
+            "bleed": 0,
+            "health": 1,
+            "dressed": false,
+            "vulnerary": false,
+            "bleedMinutes": 0
+        },
+        "neck": {
+            "bleed": 0,
+            "health": 1,
+            "dressed": false,
+            "vulnerary": false,
+            "bleedMinutes": 0
+        },
+        "groin": {
+            "bleed": 0,
+            "health": 1,
+            "dressed": false,
+            "vulnerary": false,
+            "bleedMinutes": 0
+        },
+        "earLeft": {
+            "bleed": 0,
+            "health": 1,
+            "dressed": false,
+            "vulnerary": false,
+            "bleedMinutes": 0
+        },
+        "eyeLeft": {
+            "bleed": 0,
+            "health": 1,
+            "dressed": false,
+            "vulnerary": false,
+            "bleedMinutes": 0
+        },
+        "hipLeft": {
+            "bleed": 0,
+            "health": 1,
+            "dressed": false,
+            "vulnerary": false,
+            "bleedMinutes": 0
+        },
+        "earRight": {
+            "bleed": 0,
+            "health": 1,
+            "dressed": false,
+            "vulnerary": false,
+            "bleedMinutes": 0
+        },
+        "eyeRight": {
+            "bleed": 0,
+            "health": 1,
+            "dressed": false,
+            "vulnerary": false,
+            "bleedMinutes": 0
+        },
+        "footLeft": {
+            "bleed": 0,
+            "health": 1,
+            "dressed": false,
+            "vulnerary": false,
+            "bleedMinutes": 0
+        },
+        "handLeft": {
+            "bleed": 0,
+            "health": 1,
+            "dressed": false,
+            "vulnerary": false,
+            "bleedMinutes": 0
+        },
+        "hipRight": {
+            "bleed": 0,
+            "health": 1,
+            "dressed": false,
+            "vulnerary": false,
+            "bleedMinutes": 0
+        },
+        "kneeLeft": {
+            "bleed": 0,
+            "health": 1,
+            "dressed": false,
+            "vulnerary": false,
+            "bleedMinutes": 0
+        },
+        "chestLeft": {
+            "bleed": 0,
+            "health": 1,
+            "dressed": false,
+            "vulnerary": false,
+            "bleedMinutes": 0
+        },
+        "footRight": {
+            "bleed": 0,
+            "health": 1,
+            "dressed": false,
+            "vulnerary": false,
+            "bleedMinutes": 0
+        },
+        "handRight": {
+            "bleed": 0,
+            "health": 1,
+            "dressed": false,
+            "vulnerary": false,
+            "bleedMinutes": 0
+        },
+        "kneeRight": {
+            "bleed": 0,
+            "health": 1,
+            "dressed": false,
+            "vulnerary": false,
+            "bleedMinutes": 0
+        },
+        "chestRight": {
+            "bleed": 0,
+            "health": 1,
+            "dressed": false,
+            "vulnerary": false,
+            "bleedMinutes": 0
+        },
+        "buttockLeft": {
+            "bleed": 0,
+            "health": 1,
+            "dressed": false,
+            "vulnerary": false,
+            "bleedMinutes": 0
+        },
+        "obliqueLeft": {
+            "bleed": 0,
+            "health": 1,
+            "dressed": false,
+            "vulnerary": false,
+            "bleedMinutes": 0
+        },
+        "buttockRight": {
+            "bleed": 0,
+            "health": 1,
+            "dressed": false,
+            "vulnerary": false,
+            "bleedMinutes": 0
+        },
+        "lowerArmLeft": {
+            "bleed": 0,
+            "health": 1,
+            "dressed": false,
+            "vulnerary": false,
+            "bleedMinutes": 0
+        },
+        "lowerLegLeft": {
+            "bleed": 0,
+            "health": 1,
+            "dressed": false,
+            "vulnerary": false,
+            "bleedMinutes": 0
+        },
+        "obliqueRight": {
+            "bleed": 0,
+            "health": 1,
+            "dressed": false,
+            "vulnerary": false,
+            "bleedMinutes": 0
+        },
+        "shoulderLeft": {
+            "bleed": 0,
+            "health": 1,
+            "dressed": false,
+            "vulnerary": false,
+            "bleedMinutes": 0
+        },
+        "stomachLower": {
+            "bleed": 0,
+            "health": 1,
+            "dressed": false,
+            "vulnerary": false,
+            "bleedMinutes": 0
+        },
+        "stomachUpper": {
+            "bleed": 0,
+            "health": 1,
+            "dressed": false,
+            "vulnerary": false,
+            "bleedMinutes": 0
+        },
+        "upperArmLeft": {
+            "bleed": 0,
+            "health": 1,
+            "dressed": false,
+            "vulnerary": false,
+            "bleedMinutes": 0
+        },
+        "lowerArmRight": {
+            "bleed": 0,
+            "health": 1,
+            "dressed": false,
+            "vulnerary": false,
+            "bleedMinutes": 0
+        },
+        "lowerLegRight": {
+            "bleed": 0,
+            "health": 1,
+            "dressed": false,
+            "vulnerary": false,
+            "bleedMinutes": 0
+        },
+        "shoulderRight": {
+            "bleed": 0,
+            "health": 1,
+            "dressed": false,
+            "vulnerary": false,
+            "bleedMinutes": 0
+        },
+        "upperArmRight": {
+            "bleed": 0,
+            "health": 1,
+            "dressed": false,
+            "vulnerary": false,
+            "bleedMinutes": 0
+        },
+        "thighInnerLeft": {
+            "bleed": 0,
+            "health": 1,
+            "dressed": false,
+            "vulnerary": false,
+            "bleedMinutes": 0
+        },
+        "thighOuterLeft": {
+            "bleed": 0,
+            "health": 1,
+            "dressed": false,
+            "vulnerary": false,
+            "bleedMinutes": 0
+        },
+        "thighInnerRight": {
+            "bleed": 0,
+            "health": 1,
+            "dressed": false,
+            "vulnerary": false,
+            "bleedMinutes": 0
+        },
+        "thighOuterRight": {
+            "bleed": 0,
+            "health": 1,
+            "dressed": false,
+            "vulnerary": false,
+            "bleedMinutes": 0
+        }
+    }
+}
