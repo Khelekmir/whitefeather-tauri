@@ -4,6 +4,8 @@ import DevBuild from './DevBuild';
 import CharacterList from './CharacterList';
 import CharacterDetail from './CharacterDetail';
 import Battleground from './Battleground';
+import Playground from './Playground';
+import SocialLab from './SocialLab';
 import { useGameStore } from './store/gameStore';
 
 function TitleScreen() {
@@ -36,6 +38,9 @@ function TitleScreen() {
         </Link>
         <Link to="/battleground" style={menuButtonStyle}>
           Battleground
+        </Link>
+        <Link to="/social" style={menuButtonStyle}>
+          Social Hall
         </Link>
       </div>
 
@@ -76,6 +81,8 @@ function App() {
         <Route path="/characters" element={<CharacterList />} />
         <Route path="/characters/detailed/:id" element={<CharacterDetail />} />
         <Route path="/battleground" element={<Battleground />} />
+        <Route path="/social" element={<SocialLab />} />
+        <Route path="/playground" element={<Playground />} />
       </Routes>
     </Router>
   );

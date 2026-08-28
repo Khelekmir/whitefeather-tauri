@@ -237,6 +237,10 @@ export type GrowthRate =
 export interface SocialStatic {
   personality: string;
   temperament: string;
+  /**
+   * Legacy happiness baselines/rates — happiness is increasingly treated as
+   * synthesized wellbeing; prefer durable pressure profiles.
+   */
   baselineHappiness: number;
   baselineStress: number;
   happinessGrowth: GrowthRate;
@@ -245,14 +249,32 @@ export interface SocialStatic {
   stressDecay: GrowthRate;
   note: string | null;
   alcoholTolerance: Record<string, number>;
+  /**
+   * Per-character modifiers on temperament pressure baselines/rates.
+   * Pain load is derived from itemized health and is not modified here.
+   */
+  pressureMods?: import('../data/social/durablePressures').CharacterPressureModifiers;
 }
 
 export interface SocialDynamic {
   mood: string;
+  /** Legacy / display wellbeing — prefer synthesizing from durable pressures. */
   happiness: number;
   stress: number;
+  /** Social/fatigue energy (0–100). Distinct from combat stamina, though combat can write into it. */
+  energy: number;
+  belonging: number;
+  agency: number;
+  pride: number;
+  shame: number;
+  /** Blood alcohol percent (0.08 = 0.08%). Rises as gut ethanol absorbs. */
   BAC: number;
   peakBAC: number;
+  /**
+   * Ethanol (grams) swallowed but not yet in the blood — stomach/gut pool.
+   * Consuming drinks adds here; time ticks move it into BAC.
+   */
+  unabsorbedEthanolG: number;
   hoursSinceLastDrink: number | null;
   intoxicationStage: string;
   alcoholFatigue: number;
@@ -531,8 +553,14 @@ export function createDefaultSocialStats(options?: {
       mood: 'calm',
       happiness: baselineHappiness,
       stress: baselineStress,
+      energy: 70,
+      belonging: 60,
+      agency: 60,
+      pride: 50,
+      shame: 20,
       BAC: 0,
       peakBAC: 0,
+      unabsorbedEthanolG: 0,
       hoursSinceLastDrink: null,
       intoxicationStage: 'sober',
       alcoholFatigue: 0,

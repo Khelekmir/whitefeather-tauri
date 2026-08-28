@@ -40,12 +40,40 @@ import {
 } from './utils/combat/resolveBasicAttack';
 import { tickBleed } from './utils/combat/tickBleed';
 import { AimTargetPanel, AIM_ZONE_LABELS } from './components/AimTargetPanel';
+import { AttackRhythmQte } from './components/AttackRhythmQte';
+import { CombatPosePair } from './components/CombatPosePair';
+import {
+  bandDurationsMs,
+  scaleRhythmWindow,
+  scaleRhythmWindowFromCompetence,
+  type RhythmGrade,
+  type RhythmWindow,
+} from './utils/combat/attackRhythm';
+import { calcRhythmCompetence } from './utils/combat/rhythmCompetence';
+import { COMBAT_TUNING } from './utils/combat/combatTuning';
+import { calcAttackerSwingStamina } from './utils/combat/calcStaminaLoss';
+import { getItemTemplate } from './data/catalog/itemTemplates';
+import { calcItemWeight } from './utils/items/resolveItem';
+import { roundToThousandths } from './utils/combat/penalties';
 
-const DEFAULT_LEFT = 'unit_lyn';
-const DEFAULT_RIGHT = 'unit_kent';
+const DEFAULT_LEFT = 'unit_amberyl';
+const DEFAULT_RIGHT = 'unit_sain';
 
 type AttackDirection = 'leftToRight' | 'rightToLeft';
 
+interface PendingRhythmAttack {
+  direction: AttackDirection;
+  rhythmWindow: RhythmWindow;
+}
+
+function resolveAttackerWeaponType(snap: CombatantSnapshot | null): string {
+  if (!snap) return 'unequipped';
+  return (
+    snap.mainhand?.template.weaponType ??
+    snap.mainhand?.instance.weaponType ??
+    (snap.mainhand?.instance.itemType === 'weapon' ? 'dagger' : 'unequipped')
+  );
+}
 const pageStyle: CSSProperties = {
   minHeight: '100vh',
   padding: '28px 32px 48px',
@@ -508,9 +536,7 @@ function MatchupPreview({
   if (!attacker || !defender) return null;
   const strike = attacker.unit.combatStats.currentStance.strike;
   const cover = defender.unit.combatStats.currentStance.cover;
-  const weaponType =
-    attacker.mainhand?.instance.weaponType ??
-    (attacker.mainhand?.instance.itemType === 'weapon' ? 'dagger' : 'punch');
+  const weaponType = resolveAttackerWeaponType(attacker);
   const matchup = evaluateStanceMatchupFromSkills(
     strike,
     cover,
@@ -519,6 +545,12 @@ function MatchupPreview({
     weaponType
   );
   const presented = summarizeRemappedAim(aim, cover, 4);
+  const competence = calcRhythmCompetence(attacker.unit, weaponType, strike);
+  const rhythmWindow = scaleRhythmWindowFromCompetence(
+    matchup.windowFactor,
+    competence
+  );
+  const bands = bandDurationsMs(rhythmWindow);
   const relationColor =
     matchup.relation === 'opposite'
       ? '#86efac'
@@ -555,6 +587,19 @@ function MatchupPreview({
         parry window ×{matchup.parryWindowFactor.toFixed(2)}
         <span style={{ opacity: 0.55 }}> preview</span>
       </div>
+      <div style={{ opacity: 0.8, marginTop: 2 }}>
+        competence {competence.competence.toFixed(2)} (weapon {competence.weaponEff.toFixed(2)} ·
+        strike {competence.strikeEff.toFixed(2)})
+      </div>
+      <div style={{ opacity: 0.75 }}>
+        {weaponType} skill → specific {competence.weaponSpecific.toFixed(2)} · family{' '}
+        {competence.weaponFamily.toFixed(2)} · general {competence.weaponGeneral.toFixed(2)}
+      </div>
+      <div style={{ opacity: 0.8, marginTop: 2 }}>
+        rhythm QTE: collapse {bands.totalMs} ms · hit band ~{bands.hitMs} ms · crit band ~
+        {bands.critMs} ms
+        <span style={{ opacity: 0.55 }}> (if rhythm on)</span>
+      </div>
       {!matchup.weaponOnPreferredLine && (
         <div style={{ opacity: 0.7 }}>
           {weaponType} prefers {formatStanceLabel(matchup.weaponPreferredStrike)} (affinity{' '}
@@ -580,8 +625,13 @@ function Battleground() {
   const [aim, setAim] = useState<AttackTargetKey>('chest');
   /** Which side is currently being aimed at (drives silhouette sex + attack buttons). */
   const [attackDir, setAttackDir] = useState<AttackDirection>('leftToRight');
+  /** Lab toggle: off = instant 100% hit; on = LoD shrinking-square QTE. */
+  const [useRhythm, setUseRhythm] = useState(false);
+  const [pendingRhythm, setPendingRhythm] = useState<PendingRhythmAttack | null>(
+    null
+  );
   const [log, setLog] = useState<string[]>([
-    'Battleground ready. Click the defender silhouette to pick an aim zone. 100% hit still assumed; rhythm/parry deferred.',
+    'Battleground ready. Aim on the silhouette, then Attack. Rhythm QTE is optional (toggle below).',
   ]);
 
   useEffect(() => {
@@ -615,15 +665,41 @@ function Battleground() {
   const defenderSex = defenderSnap?.unit.sex ?? 'M';
   const aimAccent = attackDir === 'leftToRight' ? '#fca5a5' : '#7dd3fc';
 
-  const runAttack = (direction: AttackDirection) => {
+  const buildRhythmWindow = (
+    attackerSnap: CombatantSnapshot | null,
+    defenderSnapLocal: CombatantSnapshot | null
+  ): RhythmWindow => {
+    if (!attackerSnap || !defenderSnapLocal) {
+      return scaleRhythmWindow({ windowFactor: 1, competence: 0.5 });
+    }
+    const weaponType = resolveAttackerWeaponType(attackerSnap);
+    const strike = attackerSnap.unit.combatStats.currentStance.strike;
+    const m = evaluateStanceMatchupFromSkills(
+      strike,
+      defenderSnapLocal.unit.combatStats.currentStance.cover,
+      attackerSnap.unit.combatStats.stanceSkill,
+      defenderSnapLocal.unit.combatStats.stanceSkill,
+      weaponType
+    );
+    const competence = calcRhythmCompetence(attackerSnap.unit, weaponType, strike);
+    return scaleRhythmWindowFromCompetence(m.windowFactor, competence);
+  };
+
+  const applyConnectedAttack = (
+    direction: AttackDirection,
+    grade: RhythmGrade | 'bypass'
+  ) => {
     if (!left || !right) {
       pushLog('Cannot attack — pick two valid fighters.');
       return;
     }
-    setAttackDir(direction);
     const attacker = direction === 'leftToRight' ? left : right;
     const defender = direction === 'leftToRight' ? right : left;
-    const result = resolveBasicAttack(attacker, defender, aim);
+    const critMultiplier =
+      grade === 'crit' ? COMBAT_TUNING.rhythm.critAttackMultiplier : 1;
+    const result = resolveBasicAttack(attacker, defender, aim, {
+      critMultiplier,
+    });
     if (direction === 'leftToRight') {
       setLeft(result.attacker);
       setRight(result.defender);
@@ -631,7 +707,84 @@ function Battleground() {
       setRight(result.attacker);
       setLeft(result.defender);
     }
-    pushLog(result.log);
+    const tag =
+      grade === 'bypass'
+        ? '[bypass:100% hit]'
+        : `[rhythm:${grade}]`;
+    pushLog([tag, ...result.log]);
+  };
+
+  const applyMissedAttack = (direction: AttackDirection) => {
+    if (!left || !right) return;
+    const attackerIn = direction === 'leftToRight' ? left : right;
+    const attacker = {
+      unit: structuredClone(attackerIn.unit),
+      itemsById: structuredClone(attackerIn.itemsById),
+    };
+    const mainId = attacker.unit.equipment.mainhand;
+    const offId = attacker.unit.equipment.offhand;
+    const mainhand = mainId ? attacker.itemsById[mainId] ?? null : null;
+    const offhand = offId ? attacker.itemsById[offId] ?? null : null;
+    const offhandIsShield = offhand?.itemType === 'shield';
+    const offTemplate = offhand ? getItemTemplate(offhand.templateId) : null;
+    const offhandWeight =
+      offhand && offTemplate ? calcItemWeight(offTemplate) : 0;
+    const twoHanding =
+      !!(
+        mainhand &&
+        getItemTemplate(mainhand.templateId)?.flags?.twoHandOptional
+      ) &&
+      !offhandIsShield &&
+      offhandWeight <= 0;
+    const fullSwing = calcAttackerSwingStamina({
+      attacker: attacker.unit,
+      mainhand,
+      offhandWeight,
+      twoHanding,
+    });
+    const loss = roundToThousandths(
+      fullSwing * COMBAT_TUNING.rhythm.missStaminaFraction
+    );
+    attacker.unit.combatStats.base.staminaCurrent = Math.max(
+      0,
+      roundToThousandths(attacker.unit.combatStats.base.staminaCurrent - loss)
+    );
+    if (direction === 'leftToRight') setLeft(attacker);
+    else setRight(attacker);
+    pushLog([
+      '[rhythm:miss]',
+      `${attacker.unit.name} mistimes the strike (${aim} aim) — miss. Swing stamina −${loss} → ${attacker.unit.combatStats.base.staminaCurrent}.`,
+    ]);
+  };
+
+  const runAttack = (direction: AttackDirection) => {
+    if (!left || !right) {
+      pushLog('Cannot attack — pick two valid fighters.');
+      return;
+    }
+    if (pendingRhythm) return;
+    setAttackDir(direction);
+    if (!useRhythm) {
+      applyConnectedAttack(direction, 'bypass');
+      return;
+    }
+    const atkSnap = direction === 'leftToRight' ? leftSnap : rightSnap;
+    const defSnap = direction === 'leftToRight' ? rightSnap : leftSnap;
+    setPendingRhythm({
+      direction,
+      rhythmWindow: buildRhythmWindow(atkSnap, defSnap),
+    });
+  };
+
+  const onRhythmResult = (grade: RhythmGrade) => {
+    if (!pendingRhythm) return;
+    const { direction } = pendingRhythm;
+    setPendingRhythm(null);
+    if (grade === 'miss') {
+      applyMissedAttack(direction);
+      return;
+    }
+    applyConnectedAttack(direction, grade);
   };
 
   const swapSides = () => {
@@ -645,7 +798,7 @@ function Battleground() {
     setRightId(DEFAULT_RIGHT);
     setLeft(cloneFighter(DEFAULT_LEFT));
     setRight(cloneFighter(DEFAULT_RIGHT));
-    pushLog('Reset to Lyn vs Kent (fresh gear, health, preferred stances).');
+    pushLog('Reset to Amberyl vs Sain (fresh gear, health, preferred stances).');
   };
 
   const patchStance = (side: 'left' | 'right', patch: Partial<CombatStance>) => {
@@ -676,7 +829,7 @@ function Battleground() {
         </button>
         <button
           type="button"
-          onClick={() => navigate('/characters/detailed/unit_lyn')}
+          onClick={() => navigate('/characters/detailed/unit_amberyl')}
           style={navBtn}
         >
           Character Detail
@@ -687,7 +840,24 @@ function Battleground() {
         <p style={{ margin: '0 0 6px', opacity: 0.55, fontSize: 12, letterSpacing: 1 }}>
           COMBAT LAB
         </p>
-        <h1 style={{ margin: '0 0 8px', fontSize: '2rem' }}>Battleground</h1>
+        <h1 style={{ margin: '0 0 8px', fontSize: '2rem' }}>
+          <button
+            type="button"
+            onClick={() => navigate('/playground')}
+            title="…"
+            style={{
+              all: 'unset',
+              cursor: 'pointer',
+              font: 'inherit',
+              fontSize: 'inherit',
+              fontWeight: 'inherit',
+              letterSpacing: 'inherit',
+              color: 'inherit',
+            }}
+          >
+            Battleground
+          </button>
+        </h1>
         <p
           style={{
             margin: 0,
@@ -697,11 +867,23 @@ function Battleground() {
             marginRight: 'auto',
           }}
         >
-          Click the defender silhouette to pick an aim zone (8 regions). Aim A / Aim B switches
-          whose body you target. Cover remaps presented parts; strike vs cover is previewed.
-          Rhythm / parry / dodge still deferred.
+          Click the defender silhouette to pick an aim zone (8 regions). Optional attack-rhythm
+          QTE (Legend of Dragoon–style square) gates the hit; toggle it off for instant 100% hits.
+          Defender parry / dodge still deferred.
         </p>
       </header>
+
+      {pendingRhythm ? (
+        <AttackRhythmQte
+          rhythmWindow={pendingRhythm.rhythmWindow}
+          accent={pendingRhythm.direction === 'leftToRight' ? '#fca5a5' : '#7dd3fc'}
+          onResult={(grade) => onRhythmResult(grade)}
+          onCancel={() => {
+            pushLog('[rhythm:cancel] Attack timing cancelled.');
+            setPendingRhythm(null);
+          }}
+        />
+      ) : null}
 
       <div
         className="bg-grid"
@@ -729,9 +911,42 @@ function Battleground() {
             alignItems: 'center',
             gap: 10,
             paddingTop: 12,
-            minWidth: 260,
+            minWidth: 280,
+            maxWidth: 340,
           }}
         >
+          {(() => {
+            const atkSnap = attackDir === 'leftToRight' ? leftSnap : rightSnap;
+            const defSnapLocal = attackDir === 'leftToRight' ? rightSnap : leftSnap;
+            if (!atkSnap || !defSnapLocal) return null;
+            const atkWeapon = resolveAttackerWeaponType(atkSnap);
+            const defWeapon = resolveAttackerWeaponType(defSnapLocal);
+            return (
+              <CombatPosePair
+                attacker={{
+                  name: atkSnap.unit.name,
+                  sex: atkSnap.unit.sex,
+                  weaponType: atkWeapon,
+                  strike: atkSnap.unit.combatStats.currentStance.strike,
+                  cover: atkSnap.unit.combatStats.currentStance.cover,
+                }}
+                defender={{
+                  name: defSnapLocal.unit.name,
+                  sex: defSnapLocal.unit.sex,
+                  weaponType: defWeapon,
+                  strike: defSnapLocal.unit.combatStats.currentStance.strike,
+                  cover: defSnapLocal.unit.combatStats.currentStance.cover,
+                }}
+                attackerAccent={
+                  attackDir === 'leftToRight' ? '#7dd3fc' : '#fca5a5'
+                }
+                defenderAccent={
+                  attackDir === 'leftToRight' ? '#fca5a5' : '#7dd3fc'
+                }
+              />
+            );
+          })()}
+
           <div style={{ fontSize: '1.5rem', fontWeight: 800, letterSpacing: 2, opacity: 0.85 }}>
             VS
           </div>
@@ -793,6 +1008,40 @@ function Battleground() {
             label={attackDir === 'leftToRight' ? 'A → B' : 'B → A'}
           />
 
+          <label
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              fontSize: 12,
+              opacity: 0.9,
+              width: '100%',
+              padding: '8px 10px',
+              borderRadius: 8,
+              border: useRhythm
+                ? '1px solid rgba(251, 191, 36, 0.45)'
+                : '1px solid rgba(255,255,255,0.12)',
+              background: useRhythm ? 'rgba(251, 191, 36, 0.08)' : 'rgba(255,255,255,0.03)',
+              cursor: 'pointer',
+              boxSizing: 'border-box',
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={useRhythm}
+              onChange={(e) => setUseRhythm(e.target.checked)}
+              style={{ margin: 0, cursor: 'pointer' }}
+            />
+            <span>
+              Use attack rhythm
+              <span style={{ display: 'block', opacity: 0.6, fontSize: 10, marginTop: 2 }}>
+                {useRhythm
+                  ? 'ON — shrinking square QTE (miss / hit / crit)'
+                  : 'OFF — bypass with 100% hit (lab default)'}
+              </span>
+            </span>
+          </label>
+
           <button
             type="button"
             style={{
@@ -804,8 +1053,10 @@ function Battleground() {
                   : 'linear-gradient(180deg, #1d2a3f 0%, #121a2a 100%)',
             }}
             onClick={() => runAttack(attackDir)}
+            disabled={!!pendingRhythm}
           >
             {attackDir === 'leftToRight' ? 'A → B Attack' : 'B → A Attack'}
+            {useRhythm ? ' (QTE)' : ''}
           </button>
           <button
             type="button"
@@ -813,8 +1064,10 @@ function Battleground() {
             onClick={() =>
               runAttack(attackDir === 'leftToRight' ? 'rightToLeft' : 'leftToRight')
             }
+            disabled={!!pendingRhythm}
           >
             {attackDir === 'leftToRight' ? 'B → A Attack' : 'A → B Attack'}
+            {useRhythm ? ' (QTE)' : ''}
           </button>
           <button
             type="button"

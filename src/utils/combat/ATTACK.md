@@ -1,8 +1,23 @@
 # Basic attack (Battleground)
 
-Assumes **100% hit** for now — no dodge, parry, miss, or attack-rhythm.
+## Hit gating
 
-**Stances (testing):** defender `coverHigh|Mid|Low` remaps which body parts the aim zone presents. Attacker `strikeHigh|Mid|Low` vs that cover is a same / adjacent / opposite matchup that yields an **attack window factor** (logged, not rolled). Weapon preferred-line affinity scales breakthrough. **Parry window** is separately scaled by strike line — low strikes are slightly harder to parry (`parryWindowByStrikeLine.low ≈ 0.72`). See `data/combat/stances.ts` and `calcStanceMatchup.ts`.
+Battleground lab toggle **Use attack rhythm**:
+
+| Mode | Behavior |
+|------|----------|
+| **OFF (default)** | Bypass — **100% hit**, instant `resolveBasicAttack` (`[bypass:100% hit]`) |
+| **ON** | Legend of Dragoon–style shrinking/rotating square QTE → `miss` / `hit` / `crit` |
+
+- **miss** — no damage; attacker pays a fraction of swing stamina (`rhythm.missStaminaFraction`)
+- **hit** — normal resolve
+- **crit** — resolve with `critAttackMultiplier` on attack value
+- **Attacker competence** (weapon skill + strike stance, with family/general transfer floors) is the main driver of hit/crit band width and untrained collapse haste. Stance `windowFactor` remains the tactical guarded/exposed modifier. SPD eases collapse; LCK widens crit only. Weapon skill does **not** scale damage.
+- **Defender** parry / dodge QTE still deferred (`parryWindowFactor` remains preview)
+
+See `rhythmCompetence.ts`, `weaponFamilies.ts`, `attackRhythm.ts`, `AttackRhythmQte.tsx`, `combatTuning.rhythm`.
+
+**Stances:** defender `coverHigh|Mid|Low` remaps which body parts the aim zone presents. Attacker `strikeHigh|Mid|Low` vs that cover is a same / adjacent / opposite matchup that yields an **attack window factor** (now also sizes the attacker QTE). Weapon preferred-line affinity scales breakthrough. **Parry window** is separately scaled by strike line — low strikes are slightly harder to parry (`parryWindowByStrikeLine.low ≈ 0.72`). See `data/combat/stances.ts` and `calcStanceMatchup.ts`.
 
 ## Design: gear pressure (policy B)
 
@@ -26,18 +41,19 @@ Tuning knobs: `combatTuning.ts`.
 ## Pipeline
 
 1. `calcMainhandAttackValue` — STR-led offense (female STR disadvantage is intentional)
-2. Stance matchup (strike vs cover) — window factor preview; 100% hit still assumed
-3. `pickBodyPartWithStance(aim, cover)` — body-part roll remapped by cover
-4. `calcCombatDamage` — armor mitigation → part damage %
-5. Apply itemized + pool HP
-6. Soft/hard **armor wear** (`calcArmorDurabilityLoss`) + outfit-ruin log lines
-7. **Weapon wear** by target class (hard / soft / flesh)
-8. **Stamina** — `calcAttackerSwingStamina` (gear burden, oversized weapon vs STR, two-hand) + `calcDefenderHitStamina` (part vitality, attack force, bare/soft/hard surface, CON ratio). Dodge/parry cost helpers stubbed for QTE.
-9. Tiny weapon / stance skill bumps
+2. Stance matchup (strike vs cover) — window factor sizes rhythm QTE (or ignored on bypass)
+3. Rhythm grade (optional) → miss exits; hit/crit continue
+4. `pickBodyPartWithStance(aim, cover)` — body-part roll remapped by cover
+5. `calcCombatDamage` — armor mitigation → part damage %
+6. Apply itemized + pool HP
+7. Soft/hard **armor wear** (`calcArmorDurabilityLoss`) + outfit-ruin log lines
+8. **Weapon wear** by target class (hard / soft / flesh)
+9. **Stamina** — `calcAttackerSwingStamina` + `calcDefenderHitStamina`. Dodge/parry cost helpers stubbed for defender QTE.
+10. Flat skill gains from `COMBAT_TUNING.training` (weapon + strike + cover bumps on connect; misses skip)
 
 ## Entry
 
-`resolveBasicAttack(attacker, defender, aimZone)` — Battleground keeps mutable `FighterState` clones.
+`resolveBasicAttack(attacker, defender, aimZone, opts?)` — optional `{ critMultiplier }`. Battleground keeps mutable `FighterState` clones.
 
 ## Health model
 

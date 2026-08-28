@@ -113,8 +113,75 @@ export const COMBAT_TUNING = {
   unclottableRuinedIntensity: 1,
 
   /**
-   * Stance matchup (cover vs strike). Window factor is logged as a preview —
-   * Battleground still assumes 100% hit. Body-part remap is live.
+   * Attacker rhythm QTE (Legend of Dragoon–style shrinking square).
+   * Used when Battleground “Use attack rhythm” is on; bypass keeps 100% hit.
+   */
+  rhythm: {
+    /** Base time for the outer square to finish its shrink (ms). */
+    durationMs: 1100,
+    /** Outer square starts at this scale (inner = 1). */
+    startScale: 2.75,
+    /** Outer continues shrinking past the inner so late presses are possible. */
+    endScale: 0.55,
+    /** |scale − 1| ≤ this → crit (before competence / luck scaling). */
+    critBand: 0.02,
+    /** |scale − 1| ≤ this → hit (before competence scaling). */
+    hitBand: 0.1,
+    /** Rotation degrees over the full duration. */
+    rotationDegrees: 270,
+    /** Crit multiplies attack value before damage. */
+    critAttackMultiplier: 1.4,
+    /**
+     * How strongly stance windowFactor tightens bands / speeds the QTE.
+     * effectiveBand = baseBand * lerp(1, windowFactor, this).
+     */
+    windowBandInfluence: 0.85,
+    /** Miss still costs this fraction of a normal swing stamina. */
+    missStaminaFraction: 0.55,
+
+    /**
+     * Attacker competence (weapon + strike transfer) → band width & collapse.
+     * See rhythmCompetence.ts / weaponFamilies.ts.
+     */
+    competence: {
+      /** Blend weights for final competence (should sum ~1 with baseSkillWeight). */
+      weaponWeight: 0.58,
+      strikeWeight: 0.37,
+      baseSkillWeight: 0.05,
+      /** Family avg × this can floor weaponEff when specific is low. */
+      weaponFamilyFloor: 0.4,
+      /** Top-N general melee avg × this as a weaker floor. */
+      weaponGeneralFloor: 0.2,
+      /** How many highest weapon ranks feed “general melee.” */
+      generalTopN: 3,
+      /** Strike-line family floor (mid gets a slightly better bridge). */
+      strikeFamilyFloor: 0.45,
+      strikeFamilyFloorMid: 0.55,
+      /**
+       * Band scale from competence: band *= (bandFloor + (1 - bandFloor) * competence).
+       * Low competence → much tighter hit/crit windows.
+       */
+      bandFloor: 0.22,
+      /**
+       * Untrained haste: duration /= 1 + (1 - competence) * untrainedHaste.
+       * Faster collapse = harder (clumsy swing).
+       */
+      untrainedHaste: 0.55,
+      /**
+       * High SPD eases collapse: duration *= 1 + speedFactor * speedEase.
+       * Slower collapse = easier.
+       */
+      speedEase: 0.22,
+      /**
+       * High LCK widens crit band only: crit *= 1 + luckFactor * luckCritBonus.
+       */
+      luckCritBonus: 0.35,
+    },
+  },
+
+  /**
+   * Stance matchup (cover vs strike). Window factor now also sizes the
+   * attacker rhythm bands when rhythm mode is on. Body-part remap is live.
    */
   stance: {
     /** Max window shrink when same-line net guard is 1. */
@@ -132,7 +199,6 @@ export const COMBAT_TUNING = {
     oppositeLineAffinity: 0.4,
     rangedSamePenaltyScale: 0.45,
     rangedOppositeBonusScale: 1.15,
-    skillBump: 0.05,
     /**
      * Defender parry QTE band width by attacker's strike line.
      * Low swings are slightly harder to catch cleanly (legs/groin angle).
@@ -151,6 +217,20 @@ export const COMBAT_TUNING = {
       mid: 0.95,
       low: 0.78,
     },
+  },
+
+  /**
+   * Flat skill rank gains on a *connected* hit (rhythm miss skips these).
+   * Not formulaic / no diminishing returns yet — pure additives so you can
+   * retune burn rate during playtest without hunting magic numbers in code.
+   */
+  training: {
+    /** Equipped weapon type rank += this (attacker). */
+    weaponSkillBumpOnHit: 0.05,
+    /** Attacker's used strike stance rank += this. */
+    strikeSkillBumpOnHit: 0.05,
+    /** Defender's used cover stance rank += this. */
+    coverSkillBumpOnHit: 0.05,
   },
 
   /**

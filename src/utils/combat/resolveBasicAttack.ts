@@ -77,19 +77,32 @@ function deepCloneFighter(f: FighterState): FighterState {
   };
 }
 
+export interface ResolveBasicAttackOptions {
+  /**
+   * When &gt; 1 (rhythm crit), multiplies attack value before damage.
+   * Misses are handled outside this function.
+   */
+  critMultiplier?: number;
+}
+
 /**
- * Resolve a basic main-hand attack.
- * Assumes 100% hit (no dodge / parry / miss / attack-rhythm).
- * Applies body-part damage, pool HP drain, armor + weapon durability, light stamina.
+ * Resolve a basic main-hand attack that has already connected.
+ * Hit/miss/crit gating is owned by Battleground attack-rhythm (or the 100% bypass).
+ * Applies body-part damage, pool HP drain, armor + weapon durability, stamina.
  */
 export function resolveBasicAttack(
   attackerIn: FighterState,
   defenderIn: FighterState,
-  attackTarget: AttackTargetKey = 'chest'
+  attackTarget: AttackTargetKey = 'chest',
+  opts: ResolveBasicAttackOptions = {}
 ): BasicAttackResult {
   const attacker = deepCloneFighter(attackerIn);
   const defender = deepCloneFighter(defenderIn);
   const log: string[] = [];
+  const critMultiplier =
+    opts.critMultiplier != null && opts.critMultiplier > 1
+      ? opts.critMultiplier
+      : 1;
 
   const atkBase = attacker.unit.combatStats.base;
   const defBase = defender.unit.combatStats.base;
@@ -118,6 +131,9 @@ export function resolveBasicAttack(
       bloodAttackFactor: atkBloodPen.attack,
     }
   );
+  if (critMultiplier > 1) {
+    atk.attackValue = roundToThousandths(atk.attackValue * critMultiplier);
+  }
 
   const atkStance = attacker.unit.combatStats.currentStance;
   const defStance = defender.unit.combatStats.currentStance;
@@ -140,10 +156,14 @@ export function resolveBasicAttack(
       .join(', ')}.`
   );
   log.push(
-    `${attacker.unit.name} attacks ${defender.unit.name} (${attackTarget} aim) → hits ${formatBodyPartLabel(bodypart)}.`
+    `${attacker.unit.name} attacks ${defender.unit.name} (${attackTarget} aim) → hits ${formatBodyPartLabel(bodypart)}${
+      critMultiplier > 1 ? ` [CRIT ×${critMultiplier}]` : ''
+    }.`
   );
   log.push(
-    `Attack value ${roundToThousandths(atk.attackValue)} with ${atk.weaponType} (${atk.damageType}).`
+    `Attack value ${roundToThousandths(atk.attackValue)} with ${atk.weaponType} (${atk.damageType})${
+      critMultiplier > 1 ? ` (crit applied)` : ''
+    }.`
   );
 
   const dmg = calcCombatDamage(
@@ -303,21 +323,21 @@ export function resolveBasicAttack(
     `Stamina: ${attacker.unit.name} swing −${attackerStaminaLoss} → ${atkBase.staminaCurrent}; ${defender.unit.name} hit (${surface}, ${formatBodyPartLabel(bodypart)}) −${defenderStaminaLoss} → ${defBase.staminaCurrent}.`
   );
 
-  // Tiny weapon skill bump on successful hit (optional feel from old utils)
+  // Skill gains on connect — flat additives from COMBAT_TUNING.training
+  const train = COMBAT_TUNING.training;
   const skillKey = atk.weaponType as WeaponTypeId;
   const prevSkill = attacker.unit.combatStats.weaponSkill[skillKey] ?? 1;
   attacker.unit.combatStats.weaponSkill[skillKey] = roundToThousandths(
-    prevSkill + 0.05
+    prevSkill + train.weaponSkillBumpOnHit
   );
 
-  const stanceBump = COMBAT_TUNING.stance.skillBump;
   const prevStrike = attacker.unit.combatStats.stanceSkill[atkStance.strike] ?? 1;
   attacker.unit.combatStats.stanceSkill[atkStance.strike] = roundToThousandths(
-    prevStrike + stanceBump
+    prevStrike + train.strikeSkillBumpOnHit
   );
   const prevCover = defender.unit.combatStats.stanceSkill[defStance.cover] ?? 1;
   defender.unit.combatStats.stanceSkill[defStance.cover] = roundToThousandths(
-    prevCover + stanceBump
+    prevCover + train.coverSkillBumpOnHit
   );
 
   return {
