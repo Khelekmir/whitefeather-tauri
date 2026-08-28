@@ -12,9 +12,11 @@ import {
   type RelationshipScores,
 } from './data/social/socialLabScaffold';
 import {
+  driftDurablePressures,
   hydrateDurablePressures,
   snapshotDurablePressures,
 } from './utils/social/durablePressureState';
+import { PRESSURE_DRIFT_TUNING } from './utils/social/pressureDriftTuning';
 import { resolveMood, resolveMoodAsBlend } from './utils/social/resolveMood';
 import type { Unit as DetailedUnit } from './types/characters';
 import {
@@ -179,9 +181,11 @@ function PersonalityPanel({ unit }: { unit: DetailedUnit }) {
 function DurablePressuresPanel({
   unit,
   onNudge,
+  onPassHours,
 }: {
   unit: DetailedUnit;
   onNudge: (id: PersonalizedPressureId, delta: number) => void;
+  onPassHours: (hours: number) => void;
 }) {
   const snap = snapshotDurablePressures(unit);
   const labels: Record<PersonalizedPressureId | 'painLoad', string> = {
@@ -211,18 +215,48 @@ function DurablePressuresPanel({
         Durable pressures
       </h2>
       <p style={{ margin: '0 0 12px', fontSize: 12, opacity: 0.65 }}>
-        Personalized meters trend toward character baselines (temperament defaults × per-character
-        mods). Pain load is computed from itemized health — no personal rates.
+        Meters drift toward a <strong>dynamic baseline</strong>; that baseline wanders up to ±
+        {PRESSURE_DRIFT_TUNING.baselineWanderMax} from a fixed <strong>anchor</strong> (temperament ×
+        mods) as lived highs/lows accumulate, then slowly settles back (follow ×
+        {PRESSURE_DRIFT_TUNING.baselineFollowFraction}, anchor-return ×
+        {PRESSURE_DRIFT_TUNING.baselineAnchorFraction}). λ=
+        {PRESSURE_DRIFT_TUNING.idleLambdaPerHour}/h. Pain load is derived — no drift.
       </p>
+      <h3 style={{ margin: '0 0 6px', fontSize: 11, opacity: 0.65, letterSpacing: 0.4 }}>
+        PASS TIME
+      </h3>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
+        {(
+          [
+            [1 / 60, '1 min'],
+            [5 / 60, '5 min'],
+            [0.25, '15 min'],
+            [1, '1 h'],
+            [3, '3 h'],
+            [8, '8 h'],
+          ] as const
+        ).map(([hours, label]) => (
+          <button key={label} type="button" style={smallBtn} onClick={() => onPassHours(hours)}>
+            Pass {label}
+          </button>
+        ))}
+      </div>
       {PERSONALIZED_PRESSURES.map((id) => {
         const v = snap.values[id];
         const p = snap.profile[id];
+        const anchor = snap.anchors[id];
+        const baseline = snap.baselines[id];
+        const wander = baseline - anchor;
+        const wanderLabel =
+          Math.abs(wander) < 0.5
+            ? 'at anchor'
+            : `${wander >= 0 ? '+' : ''}${wander.toFixed(0)} from anchor`;
         return (
           <div key={id} style={{ marginBottom: 12 }}>
             <StatBar label={labels[id]} value={Math.round(v)} color={colors[id]} />
             <div style={{ fontSize: 10, opacity: 0.55, marginTop: -6, marginBottom: 4 }}>
-              baseline {p.baseline.toFixed(0)} · growth ×{p.growth.toFixed(2)} · decay ×
-              {p.decay.toFixed(2)} · band {snap.bands[id]}
+              baseline {baseline.toFixed(0)} · anchor {anchor.toFixed(0)} ({wanderLabel}) · growth ×
+              {p.growth.toFixed(2)} · decay ×{p.decay.toFixed(2)} · band {snap.bands[id]}
             </div>
             <div style={{ display: 'flex', gap: 6 }}>
               <button type="button" style={smallBtn} onClick={() => onNudge(id, 5)}>
@@ -609,6 +643,32 @@ function SocialLab() {
     pushTaskLog(`${primary.name} ${id} ${delta >= 0 ? '+' : ''}${delta} → ${next}.`);
   };
 
+  const onPassHours = (hours: number) => {
+    if (!primary) return;
+    const result = driftDurablePressures(primary, hours);
+    setPrimary(result.unit);
+    const mins = hours * 60;
+    const label =
+      mins < 1
+        ? `${Math.round(mins * 60)} s`
+        : mins < 60
+          ? `${Math.round(mins)} min`
+          : `${hours} h`;
+    if (result.deltas.length === 0) {
+      pushTaskLog(`${primary.name}: pass ${label} — meters & baselines settled.`);
+      return;
+    }
+    const summary = result.deltas
+      .map((d) => {
+        const sign = d.delta >= 0 ? '+' : '';
+        const bSign = d.baselineTo - d.baselineFrom >= 0 ? '+' : '';
+        const bDelta = d.baselineTo - d.baselineFrom;
+        return `${d.id} ${d.from.toFixed(0)}→${d.to.toFixed(0)} (${sign}${d.delta.toFixed(1)}; bl ${d.baselineFrom.toFixed(0)}→${d.baselineTo.toFixed(0)} ${bSign}${bDelta.toFixed(1)}, anc ${d.anchor.toFixed(0)})`;
+      })
+      .join(' · ');
+    pushTaskLog(`${primary.name}: pass ${label} — ${summary}`);
+  };
+
   const onRunTask = () => {
     if (!primary) return;
     const task =
@@ -756,7 +816,11 @@ function SocialLab() {
               </p>
             </div>
             <PersonalityPanel unit={primary} />
-            <DurablePressuresPanel unit={primary} onNudge={onNudgePressure} />
+            <DurablePressuresPanel
+              unit={primary}
+              onNudge={onNudgePressure}
+              onPassHours={onPassHours}
+            />
             <MoodPanel
               unit={primary}
               compareBlend={compareBlend}

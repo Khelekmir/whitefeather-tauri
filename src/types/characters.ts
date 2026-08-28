@@ -267,6 +267,14 @@ export interface SocialDynamic {
   agency: number;
   pride: number;
   shame: number;
+  /**
+   * Dynamic idle targets for personalized pressures (incl. lust).
+   * Anchors come from temperament × pressureMods and do not change;
+   * these wander within ±baselineWanderMax of the anchor as lived experience accumulates.
+   */
+  pressureBaselines?: Partial<
+    Record<import('../data/social/durablePressures').PersonalizedPressureId, number>
+  >;
   /** Blood alcohol percent (0.08 = 0.08%). Rises as gut ethanol absorbs. */
   BAC: number;
   peakBAC: number;

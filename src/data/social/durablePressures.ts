@@ -27,12 +27,12 @@ export interface PressureRateProfile {
   /** Where this meter drifts toward when idle (0–100). May be >0 for “worriers”. */
   baseline: number;
   /**
-   * Relative speed when the meter is rising away from baseline / under load
-   * (events, combat). Dimensionless lab scale — tune in playtest.
+   * Relative speed climbing toward baseline when below it (idle recovery),
+   * and when rising under load (events / combat writers). Dimensionless.
    */
   growth: number;
   /**
-   * Relative speed when returning toward baseline (recovery).
+   * Relative speed falling toward baseline when above it (idle recovery).
    */
   decay: number;
 }
