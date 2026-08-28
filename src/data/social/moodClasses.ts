@@ -19,6 +19,38 @@ export const MOOD_CLASSES = [
 
 export type MoodClass = (typeof MOOD_CLASSES)[number];
 
+/** Soft valence for tint conjunction (same-sign → "and", cross-sign → "yet"). */
+export type MoodValence = 'positive' | 'negative';
+
+export const POSITIVE_MOODS = [
+  'open',
+  'warm',
+  'playful',
+  'driven',
+  'affectionate',
+] as const satisfies readonly MoodClass[];
+
+export const NEGATIVE_MOODS = [
+  'withdrawn',
+  'irritable',
+  'anxious',
+  'melancholy',
+  'tired',
+  'overwhelmed',
+  'frustrated',
+] as const satisfies readonly MoodClass[];
+
+const POSITIVE_SET = new Set<string>(POSITIVE_MOODS);
+
+export function moodValence(cls: MoodClass): MoodValence {
+  return POSITIVE_SET.has(cls) ? 'positive' : 'negative';
+}
+
+/** Same valence → "and"; mixed → "yet". */
+export function tintConjunction(primary: MoodClass, tint: MoodClass): 'and' | 'yet' {
+  return moodValence(primary) === moodValence(tint) ? 'and' : 'yet';
+}
+
 /** How a mood class tends to modify social / relationship gains (stub multipliers). */
 export interface MoodReceptivity {
   /** Shared chores, camp labor */

@@ -28,7 +28,7 @@ export function hydrateDurablePressures(unit: DetailedUnit): DetailedUnit {
   const next = { ...d };
   for (const id of PERSONALIZED_PRESSURES) {
     if (id === 'lust') {
-      // lust lives in lewdStats.dynamic
+      // lust lives in lewdStats.dynamic — handled below
       continue;
     }
     const key = id as Exclude<PersonalizedPressureId, 'lust'>;
@@ -38,9 +38,18 @@ export function hydrateDurablePressures(unit: DetailedUnit): DetailedUnit {
   }
   // Keep legacy stress if already set; only fill when undefined
   if (d.stress == null) next.stress = profile.stress.baseline;
+
+  const lustCur = unit.lewdStats.dynamic.lust;
+  const lustNext =
+    lustCur == null || Number.isNaN(lustCur) ? profile.lust.baseline : lustCur;
+
   return {
     ...unit,
     socialStats: { ...unit.socialStats, dynamic: next },
+    lewdStats: {
+      ...unit.lewdStats,
+      dynamic: { ...unit.lewdStats.dynamic, lust: lustNext },
+    },
   };
 }
 

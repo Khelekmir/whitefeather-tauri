@@ -11,11 +11,15 @@ import {
   relationshipPairKey,
   type RelationshipScores,
 } from './data/social/socialLabScaffold';
-import { snapshotDurablePressures } from './utils/social/durablePressureState';
+import {
+  hydrateDurablePressures,
+  snapshotDurablePressures,
+} from './utils/social/durablePressureState';
 import { resolveMood, resolveMoodAsBlend } from './utils/social/resolveMood';
 import type { Unit as DetailedUnit } from './types/characters';
 import {
   PERSONALIZED_PRESSURES,
+  resolveCharacterPressureProfile,
   type PersonalizedPressureId,
 } from './data/social/durablePressures';
 
@@ -69,7 +73,17 @@ const smallBtn: CSSProperties = {
 
 function cloneUnit(id: string): DetailedUnit | null {
   const base = getDetailedCharacter(id);
-  return base ? (structuredClone(base) as DetailedUnit) : null;
+  if (!base) return null;
+  const cloned = hydrateDurablePressures(structuredClone(base) as DetailedUnit);
+  // Lab: seed lust at the character pressure baseline (createDetailedUnit defaults lust to 0).
+  const profile = resolveCharacterPressureProfile(
+    cloned.socialStats.static.temperament,
+    cloned.socialStats.static.pressureMods
+  );
+  if (!cloned.lewdStats.dynamic.lust) {
+    cloned.lewdStats.dynamic.lust = profile.lust.baseline;
+  }
+  return cloned;
 }
 
 function StatBar({
@@ -239,14 +253,21 @@ function MoodPanel({
   unit,
   compareBlend,
   onToggleCompare,
+  flipSexPreview,
+  onToggleFlipSex,
 }: {
   unit: DetailedUnit;
   compareBlend: boolean;
   onToggleCompare: () => void;
+  flipSexPreview: boolean;
+  onToggleFlipSex: () => void;
 }) {
-  const resolved = resolveMood(unit);
+  const voiceSex = flipSexPreview ? (unit.sex === 'F' ? 'M' : 'F') : unit.sex;
+  const resolved = flipSexPreview
+    ? resolveMoodAsBlend(unit, unit.socialStats.static.temperament, voiceSex)
+    : resolveMood(unit);
   const alt = compareBlend
-    ? resolveMoodAsBlend(unit, 'Melancholic-Phlegmatic')
+    ? resolveMoodAsBlend(unit, 'Melancholic-Phlegmatic', voiceSex)
     : null;
 
   return (
@@ -263,24 +284,31 @@ function MoodPanel({
         }}
       >
         <div style={{ fontSize: 11, opacity: 0.6, marginBottom: 4 }}>
-          From durable pressures × temperament (compositional)
+          From durable pressures × temperament × sex ({voiceSex}
+          {flipSexPreview ? ' preview' : ''})
         </div>
         <div style={{ fontSize: '1.25rem', fontWeight: 700, color: '#bbf7d0' }}>
           {resolved.flavor}
         </div>
         <div style={{ fontSize: 13, opacity: 0.85, marginTop: 4 }}>{resolved.tell}</div>
         <div style={{ marginTop: 8, fontSize: 12 }}>
-          <Pill>{`class: ${resolved.moodClass}`}</Pill>
+          <Pill>{`primary: ${resolved.moodClass} (${resolved.primaryScore.toFixed(2)})`}</Pill>
+          {resolved.tintClass ? (
+            <Pill>{`tint: ${resolved.tintClass} ×${resolved.tintStrength.toFixed(2)} (${resolved.secondaryScore.toFixed(2)})`}</Pill>
+          ) : (
+            <Pill>tint: none</Pill>
+          )}
           <Pill>{`${resolved.temperament.primary}→${resolved.temperament.secondary}`}</Pill>
+          <Pill>{`voice: ${voiceSex}`}</Pill>
         </div>
+        {resolved.tintNote ? (
+          <div style={{ marginTop: 6, fontSize: 10, opacity: 0.5 }}>{resolved.tintNote}</div>
+        ) : null}
         <div style={{ marginTop: 8, fontSize: 11, opacity: 0.7 }}>
           Receptivity — chore ×{resolved.receptivity.chore.toFixed(2)} · talk ×
           {resolved.receptivity.talk.toFixed(2)} · friction ×
           {resolved.receptivity.friction.toFixed(2)} · bond ×
           {resolved.receptivity.bond.toFixed(2)}
-        </div>
-        <div style={{ marginTop: 6, fontSize: 10, opacity: 0.45, wordBreak: 'break-all' }}>
-          bands {resolved.affectKey}
         </div>
         {resolved.rationale.length > 0 ? (
           <div style={{ marginTop: 6, fontSize: 10, opacity: 0.5 }}>
@@ -300,14 +328,15 @@ function MoodPanel({
           }}
         >
           <div style={{ fontSize: 11, opacity: 0.65, marginBottom: 4 }}>
-            Same pressures as Melancholic–Phlegmatic voice
+            Same pressures as Melancholic–Phlegmatic voice ({voiceSex})
           </div>
           <div style={{ fontSize: '1.1rem', fontWeight: 650, color: '#ddd6fe' }}>
             {alt.flavor}
           </div>
           <div style={{ fontSize: 13, opacity: 0.85, marginTop: 4 }}>{alt.tell}</div>
           <div style={{ marginTop: 8, fontSize: 12 }}>
-            <Pill>{`class: ${alt.moodClass}`}</Pill>
+            <Pill>{`primary: ${alt.moodClass}`}</Pill>
+            {alt.tintClass ? <Pill>{`tint: ${alt.tintClass}`}</Pill> : <Pill>tint: none</Pill>}
           </div>
         </div>
       ) : null}
@@ -316,8 +345,13 @@ function MoodPanel({
         <input type="checkbox" checked={compareBlend} onChange={onToggleCompare} />
         Compare opposite blend voice (Melancholic–Phlegmatic)
       </label>
+      <label style={{ fontSize: 12, opacity: 0.8, display: 'flex', gap: 8, marginBottom: 8 }}>
+        <input type="checkbox" checked={flipSexPreview} onChange={onToggleFlipSex} />
+        Preview opposite sex voice ({unit.sex === 'F' ? 'M' : 'F'})
+      </label>
       <p style={{ margin: 0, fontSize: 11, opacity: 0.5 }}>
-        Nudge durable pressures above to change class and flavor — no separate happiness meter.
+        Posture is primary-only; tint shows only on the tell beneath it (and/yet by valence).
+        Both posture and tell are sexed. Knobs in moodResolveTuning.ts.
       </p>
     </section>
   );
@@ -511,6 +545,7 @@ function SocialLab() {
   const [taskLog, setTaskLog] = useState<string[]>([]);
   const [relMap, setRelMap] = useState<Record<string, RelationshipScores>>({});
   const [compareBlend, setCompareBlend] = useState(true);
+  const [flipSexPreview, setFlipSexPreview] = useState(false);
 
   useEffect(() => {
     setPrimary(cloneUnit(primaryId));
@@ -726,6 +761,8 @@ function SocialLab() {
               unit={primary}
               compareBlend={compareBlend}
               onToggleCompare={() => setCompareBlend((v) => !v)}
+              flipSexPreview={flipSexPreview}
+              onToggleFlipSex={() => setFlipSexPreview((v) => !v)}
             />
           </div>
 

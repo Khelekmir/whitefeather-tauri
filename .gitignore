@@ -25,3 +25,10 @@ src-tauri/.vscode/
 Thumbs.db
 .vscode/
 .idea/
+
+# Character / combat art (large binaries — keep local; READMEs stay tracked)
+public/characters/
+public/character_sheets/**
+!public/character_sheets/README.md
+public/combat/**
+!public/combat/README.md

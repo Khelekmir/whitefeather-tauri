@@ -120,6 +120,9 @@ export const DETAILED_PLACEHOLDER_CHARACTERS: DetailedUnit[] = [
         attractedToGirls: false,
         ovulationCycleLength: 26,
       },
+      dynamic: {
+        lust: 45,
+      },
     },
     equipment: COMBAT_CAST_INVENTORIES.unit_amberyl.equipment,
   }),
