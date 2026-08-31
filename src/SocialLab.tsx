@@ -1,27 +1,59 @@
-import { useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   getDetailedCharacter,
   listDetailedCharacters,
 } from './data/detailedPlaceholderCharacters';
+import { buildCastRelationshipGraph } from './data/social/castRelationshipSeeds';
+import { SOCIAL_TASK_TEMPLATES } from './data/social/socialLabScaffold';
 import {
-  RELATIONSHIP_AXES,
-  SOCIAL_TASK_TEMPLATES,
-  defaultRelationshipScores,
-  relationshipPairKey,
-  type RelationshipScores,
-} from './data/social/socialLabScaffold';
+  LONG_TERM_RELATIONSHIP_AXES,
+  SHORT_TERM_RELATIONSHIP_AXES,
+  type LongTermRelationshipId,
+  type ShortTermRelationshipId,
+} from './data/social/relationships';
 import {
   driftDurablePressures,
   hydrateDurablePressures,
   snapshotDurablePressures,
 } from './utils/social/durablePressureState';
 import { PRESSURE_DRIFT_TUNING } from './utils/social/pressureDriftTuning';
+import { RELATIONSHIP_DRIFT_TUNING } from './utils/social/relationshipDriftTuning';
+import {
+  driftShortTermRelationships,
+  ensureBidirectional,
+  getEdge,
+  nudgeLongTerm,
+  nudgeShortTerm,
+  sexualDesireAllowed,
+  sexualDesireSoftCap,
+  sexualPairingHardBlocked,
+  setLongTerm,
+  setShortTerm,
+  type RelationshipGraph,
+} from './utils/social/relationshipState';
 import { resolveMood, resolveMoodAsBlend } from './utils/social/resolveMood';
+import { describeCycleShift } from './utils/lewd/cycleShift';
+import {
+  advanceReproduction,
+  describeReproduction,
+} from './utils/lewd/conception';
+import {
+  advanceFluidSoil,
+  batheClearSkinSoil,
+  deriveSoilCues,
+  launderUnderwear,
+} from './utils/lewd/fluidSoil';
+import { advanceStandingLust, standingLustTarget } from './utils/lewd/lustDrive';
+import {
+  advanceFemalePhysiology,
+  formatCycleLabel,
+  hormonesForUnit,
+  isInFertileWindow,
+} from './utils/lewd/ovulationCycle';
 import type { Unit as DetailedUnit } from './types/characters';
 import {
   PERSONALIZED_PRESSURES,
-  resolveCharacterPressureProfile,
   type PersonalizedPressureId,
 } from './data/social/durablePressures';
 
@@ -77,13 +109,9 @@ function cloneUnit(id: string): DetailedUnit | null {
   const base = getDetailedCharacter(id);
   if (!base) return null;
   const cloned = hydrateDurablePressures(structuredClone(base) as DetailedUnit);
-  // Lab: seed lust at the character pressure baseline (createDetailedUnit defaults lust to 0).
-  const profile = resolveCharacterPressureProfile(
-    cloned.socialStats.static.temperament,
-    cloned.socialStats.static.pressureMods
-  );
+  // Lab: seed lust at standing target (libido × cycle × temperament expression).
   if (!cloned.lewdStats.dynamic.lust) {
-    cloned.lewdStats.dynamic.lust = profile.lust.baseline;
+    cloned.lewdStats.dynamic.lust = standingLustTarget(cloned);
   }
   return cloned;
 }
@@ -334,7 +362,13 @@ function MoodPanel({
           )}
           <Pill>{`${resolved.temperament.primary}→${resolved.temperament.secondary}`}</Pill>
           <Pill>{`voice: ${voiceSex}`}</Pill>
+          {resolved.cycleTell ? <Pill>cycle tell</Pill> : null}
         </div>
+        {resolved.cycleTell ? (
+          <div style={{ marginTop: 6, fontSize: 12, opacity: 0.75, color: '#f9a8d4' }}>
+            Cycle — {resolved.cycleTell}
+          </div>
+        ) : null}
         {resolved.tintNote ? (
           <div style={{ marginTop: 6, fontSize: 10, opacity: 0.5 }}>{resolved.tintNote}</div>
         ) : null}
@@ -505,63 +539,241 @@ function TasksPanel({
   );
 }
 
+function DirectedEdgeEditor({
+  from,
+  to,
+  graph,
+  onSetLongTerm,
+  onSetShortTerm,
+  onNudgeLongTerm,
+  onNudgeShortTerm,
+}: {
+  from: DetailedUnit;
+  to: DetailedUnit;
+  graph: RelationshipGraph;
+  onSetLongTerm: (id: LongTermRelationshipId, value: number) => void;
+  onSetShortTerm: (id: ShortTermRelationshipId, value: number) => void;
+  onNudgeLongTerm: (id: LongTermRelationshipId, delta: number) => void;
+  onNudgeShortTerm: (id: ShortTermRelationshipId, delta: number) => void;
+}) {
+  const edge = getEdge(graph, from.id, to.id);
+  if (!edge) return null;
+  const nativeDesire = sexualDesireAllowed(from, to);
+  const desireCap = sexualDesireSoftCap(from, to, edge);
+  const mmBlocked = sexualPairingHardBlocked(from, to);
+  const desireLocked = desireCap <= 0;
+
+  return (
+    <div
+      style={{
+        marginBottom: 16,
+        padding: '12px 14px',
+        borderRadius: 10,
+        border: '1px solid rgba(125,211,252,0.25)',
+        background: 'rgba(0,0,0,0.2)',
+      }}
+    >
+      <div style={{ fontSize: 14, marginBottom: 10, fontWeight: 650 }}>
+        {from.name} <span style={{ opacity: 0.45 }}>→</span> {to.name}
+        {mmBlocked ? (
+          <span style={{ marginLeft: 8, fontSize: 11, opacity: 0.55, fontWeight: 400 }}>
+            (Desire hard-locked — no M→M)
+          </span>
+        ) : !nativeDesire && desireCap > 0 ? (
+          <span style={{ marginLeft: 8, fontSize: 11, opacity: 0.55, fontWeight: 400 }}>
+            (Desire soft-capped at {desireCap} — erodable F→F)
+          </span>
+        ) : desireLocked ? (
+          <span style={{ marginLeft: 8, fontSize: 11, opacity: 0.55, fontWeight: 400 }}>
+            (Desire locked — no attraction path)
+          </span>
+        ) : null}
+      </div>
+
+      <h3 style={{ margin: '0 0 8px', fontSize: 11, opacity: 0.65, letterSpacing: 0.4 }}>
+        LONG-TERM (0–100 · no idle decay)
+      </h3>
+      {LONG_TERM_RELATIONSHIP_AXES.map((axis) => {
+        const locked = axis.id === 'desire' && desireLocked;
+        const axisMax = axis.id === 'desire' ? Math.max(1, desireCap) : 100;
+        const v = edge.longTerm[axis.id];
+        return (
+          <div key={axis.id} style={{ marginBottom: 10, opacity: locked ? 0.45 : 1 }}>
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                fontSize: 12,
+                marginBottom: 3,
+              }}
+            >
+              <span>
+                {axis.label}
+                <span style={{ opacity: 0.5 }}> — {axis.blurb}</span>
+              </span>
+              <span style={{ fontVariantNumeric: 'tabular-nums' }}>{Math.round(v)}</span>
+            </div>
+            <input
+              type="range"
+              min={0}
+              max={axisMax}
+              value={v}
+              disabled={locked}
+              onChange={(e) => onSetLongTerm(axis.id, Number(e.target.value))}
+              style={{ width: '100%' }}
+            />
+            <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+              <button
+                type="button"
+                style={smallBtn}
+                disabled={locked}
+                onClick={() => onNudgeLongTerm(axis.id, 5)}
+              >
+                +5
+              </button>
+              <button
+                type="button"
+                style={smallBtn}
+                disabled={locked}
+                onClick={() => onNudgeLongTerm(axis.id, -5)}
+              >
+                −5
+              </button>
+            </div>
+          </div>
+        );
+      })}
+
+      <h3 style={{ margin: '14px 0 8px', fontSize: 11, opacity: 0.65, letterSpacing: 0.4 }}>
+        SHORT-TERM (0–100 intensity · decays → 0)
+      </h3>
+      {SHORT_TERM_RELATIONSHIP_AXES.map((axis) => {
+        const locked = axis.id === 'desireHeat' && desireLocked;
+        const axisMax = axis.id === 'desireHeat' ? Math.max(1, desireCap) : 100;
+        const v = edge.shortTerm[axis.id];
+        return (
+          <div key={axis.id} style={{ marginBottom: 10, opacity: locked ? 0.45 : 1 }}>
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                fontSize: 12,
+                marginBottom: 3,
+              }}
+            >
+              <span>
+                {axis.label}
+                <span style={{ opacity: 0.5 }}> — {axis.blurb}</span>
+              </span>
+              <span style={{ fontVariantNumeric: 'tabular-nums' }}>{Math.round(v)}</span>
+            </div>
+            <input
+              type="range"
+              min={0}
+              max={axisMax}
+              value={v}
+              disabled={locked}
+              onChange={(e) => onSetShortTerm(axis.id, Number(e.target.value))}
+              style={{ width: '100%' }}
+            />
+            <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+              <button
+                type="button"
+                style={smallBtn}
+                disabled={locked}
+                onClick={() => onNudgeShortTerm(axis.id, 10)}
+              >
+                +10
+              </button>
+              <button
+                type="button"
+                style={smallBtn}
+                disabled={locked}
+                onClick={() => onNudgeShortTerm(axis.id, -10)}
+              >
+                −10
+              </button>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function RelationshipsPanel({
   primary,
   partner,
-  scores,
-  onAxisChange,
+  graph,
+  onSetLongTerm,
+  onSetShortTerm,
+  onNudgeLongTerm,
+  onNudgeShortTerm,
 }: {
   primary: DetailedUnit;
   partner: DetailedUnit | null;
-  scores: RelationshipScores | null;
-  onAxisChange: (axis: keyof RelationshipScores, value: number) => void;
+  graph: RelationshipGraph;
+  onSetLongTerm: (
+    from: DetailedUnit,
+    to: DetailedUnit,
+    id: LongTermRelationshipId,
+    value: number
+  ) => void;
+  onSetShortTerm: (
+    from: DetailedUnit,
+    to: DetailedUnit,
+    id: ShortTermRelationshipId,
+    value: number
+  ) => void;
+  onNudgeLongTerm: (
+    from: DetailedUnit,
+    to: DetailedUnit,
+    id: LongTermRelationshipId,
+    delta: number
+  ) => void;
+  onNudgeShortTerm: (
+    from: DetailedUnit,
+    to: DetailedUnit,
+    id: ShortTermRelationshipId,
+    delta: number
+  ) => void;
 }) {
   return (
     <section style={cardStyle}>
       <h2 style={{ margin: '0 0 6px', fontSize: '1.1rem', color: '#7dd3fc' }}>
-        Relationships (dev)
+        Relationships
       </h2>
       <p style={{ margin: '0 0 12px', fontSize: 12, opacity: 0.65 }}>
-        Direct pairwise editing for lab work. Not persisted — real relationship tables come later.
+        Directed edges (A→B ≠ B→A). Short-term weather decays to 0 on Pass Time (λ=
+        {RELATIONSHIP_DRIFT_TUNING.shortTermLambdaPerHour}/h) and crystallizes a shaved fraction into
+        long-term (gain ×{RELATIONSHIP_DRIFT_TUNING.crystallizeGain}). Desire respects attraction
+        flags; M→M Desire is never allowed.
       </p>
 
-      {!partner || !scores ? (
+      {!partner ? (
         <p style={{ margin: 0, opacity: 0.55, fontSize: 13 }}>
           Select a partner distinct from the primary character.
         </p>
       ) : (
         <>
-          <div style={{ fontSize: 14, marginBottom: 12 }}>
-            <strong>{primary.name}</strong>
-            <span style={{ opacity: 0.5 }}> ↔ </span>
-            <strong>{partner.name}</strong>
-          </div>
-          {RELATIONSHIP_AXES.map((axis) => (
-            <div key={axis.id} style={{ marginBottom: 14 }}>
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  fontSize: 12,
-                  marginBottom: 4,
-                }}
-              >
-                <span>
-                  {axis.label}
-                  <span style={{ opacity: 0.5 }}> — {axis.blurb}</span>
-                </span>
-                <span style={{ fontVariantNumeric: 'tabular-nums' }}>{scores[axis.id]}</span>
-              </div>
-              <input
-                type="range"
-                min={0}
-                max={100}
-                value={scores[axis.id]}
-                onChange={(e) => onAxisChange(axis.id, Number(e.target.value))}
-                style={{ width: '100%' }}
-              />
-            </div>
-          ))}
+          <DirectedEdgeEditor
+            from={primary}
+            to={partner}
+            graph={graph}
+            onSetLongTerm={(id, v) => onSetLongTerm(primary, partner, id, v)}
+            onSetShortTerm={(id, v) => onSetShortTerm(primary, partner, id, v)}
+            onNudgeLongTerm={(id, d) => onNudgeLongTerm(primary, partner, id, d)}
+            onNudgeShortTerm={(id, d) => onNudgeShortTerm(primary, partner, id, d)}
+          />
+          <DirectedEdgeEditor
+            from={partner}
+            to={primary}
+            graph={graph}
+            onSetLongTerm={(id, v) => onSetLongTerm(partner, primary, id, v)}
+            onSetShortTerm={(id, v) => onSetShortTerm(partner, primary, id, v)}
+            onNudgeLongTerm={(id, d) => onNudgeLongTerm(partner, primary, id, d)}
+            onNudgeShortTerm={(id, d) => onNudgeShortTerm(partner, primary, id, d)}
+          />
         </>
       )}
     </section>
@@ -577,7 +789,9 @@ function SocialLab() {
   const [partner, setPartner] = useState<DetailedUnit | null>(() => cloneUnit(DEFAULT_PARTNER));
   const [taskId, setTaskId] = useState(SOCIAL_TASK_TEMPLATES[0]?.id ?? 'gather_firewood');
   const [taskLog, setTaskLog] = useState<string[]>([]);
-  const [relMap, setRelMap] = useState<Record<string, RelationshipScores>>({});
+  const [relGraph, setRelGraph] = useState<RelationshipGraph>(() =>
+    buildCastRelationshipGraph(listDetailedCharacters())
+  );
   const [compareBlend, setCompareBlend] = useState(true);
   const [flipSexPreview, setFlipSexPreview] = useState(false);
 
@@ -589,26 +803,10 @@ function SocialLab() {
     setPartner(partnerId === primaryId ? null : cloneUnit(partnerId));
   }, [partnerId, primaryId]);
 
-  const pairKey = useMemo(() => {
-    if (!partner || primaryId === partnerId) return null;
-    return relationshipPairKey(primaryId, partnerId);
-  }, [primaryId, partnerId, partner]);
-
-  const pairScores = pairKey
-    ? relMap[pairKey] ?? defaultRelationshipScores()
-    : null;
-
-  const ensurePair = () => {
-    if (!pairKey) return;
-    setRelMap((prev) =>
-      prev[pairKey] ? prev : { ...prev, [pairKey]: defaultRelationshipScores() }
-    );
-  };
-
   useEffect(() => {
-    if (pairKey) ensurePair();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pairKey]);
+    if (!primary || !partner || primary.id === partner.id) return;
+    setRelGraph((prev) => ensureBidirectional(prev, primary, partner));
+  }, [primary, partner]);
 
   const pushTaskLog = (line: string) => {
     const stamped = `[${new Date().toLocaleTimeString()}] ${line}`;
@@ -645,8 +843,52 @@ function SocialLab() {
 
   const onPassHours = (hours: number) => {
     if (!primary) return;
+    const cycleBefore = hormonesForUnit(primary);
+    const prevCycleHour = primary.lewdStats.dynamic.ovulationCycleCurrent ?? 0;
     const result = driftDurablePressures(primary, hours);
-    setPrimary(result.unit);
+    const physio = advanceFemalePhysiology(result.unit, hours);
+    const lusted = advanceStandingLust(physio.unit, hours);
+    const repro = advanceReproduction(lusted.unit, hours, {
+      prevCycleHour,
+    });
+    const afterSoil = advanceFluidSoil(repro.unit, hours);
+    setPrimary(afterSoil);
+
+    let nextPartner = partner;
+    let partnerShiftSummary = '';
+    if (partner) {
+      const partnerBefore = hormonesForUnit(partner);
+      const partnerPrevHour = partner.lewdStats.dynamic.ovulationCycleCurrent ?? 0;
+      const partnerDrift = driftDurablePressures(partner, hours);
+      const partnerPhysio = advanceFemalePhysiology(partnerDrift.unit, hours);
+      const partnerLust = advanceStandingLust(partnerPhysio.unit, hours);
+      const partnerRepro = advanceReproduction(partnerLust.unit, hours, {
+        prevCycleHour: partnerPrevHour,
+      });
+      nextPartner = advanceFluidSoil(partnerRepro.unit, hours);
+      setPartner(nextPartner);
+      const pLen = partner.lewdStats.static.ovulationCycleLength || 28;
+      const pShift = describeCycleShift({
+        before: partnerBefore,
+        after: partnerPhysio.hormones,
+        lengthDays: pLen,
+        lustFrom: partnerLust.lustFrom,
+        lustTo: partnerLust.lustTo,
+      });
+      const pSoil = deriveSoilCues(nextPartner);
+      if (pShift.changed || pSoil.wantsBath || pSoil.soiledPanty) {
+        partnerShiftSummary = ` || ${partner.name}: ${[pShift.changed ? pShift.summary : '', pSoil.summary !== 'clean' ? pSoil.summary : ''].filter(Boolean).join(' · ')}`;
+      }
+    }
+
+    const unitsById: Record<string, DetailedUnit> = {
+      [afterSoil.id]: afterSoil,
+    };
+    if (nextPartner) unitsById[nextPartner.id] = nextPartner;
+
+    const relResult = driftShortTermRelationships(relGraph, hours, unitsById);
+    setRelGraph(relResult.graph);
+
     const mins = hours * 60;
     const label =
       mins < 1
@@ -654,19 +896,69 @@ function SocialLab() {
         : mins < 60
           ? `${Math.round(mins)} min`
           : `${hours} h`;
-    if (result.deltas.length === 0) {
-      pushTaskLog(`${primary.name}: pass ${label} — meters & baselines settled.`);
-      return;
+
+    const pressureSummary =
+      result.deltas.length === 0
+        ? 'pressures settled'
+        : result.deltas
+            .map((d) => {
+              const sign = d.delta >= 0 ? '+' : '';
+              const bSign = d.baselineTo - d.baselineFrom >= 0 ? '+' : '';
+              const bDelta = d.baselineTo - d.baselineFrom;
+              return `${d.id} ${d.from.toFixed(0)}→${d.to.toFixed(0)} (${sign}${d.delta.toFixed(1)}; bl ${d.baselineFrom.toFixed(0)}→${d.baselineTo.toFixed(0)} ${bSign}${bDelta.toFixed(1)})`;
+            })
+            .join(' · ');
+
+    const relSummary =
+      relResult.deltas.length === 0
+        ? 'rel ST settled'
+        : relResult.deltas
+            .slice(0, 6)
+            .map((d) => `${d.id} ${d.from.toFixed(0)}→${d.to.toFixed(0)}`)
+            .join(' · ');
+
+    const crystalSummary =
+      relResult.crystalDeltas.length === 0
+        ? null
+        : relResult.crystalDeltas
+            .slice(0, 8)
+            .map((d) => {
+              const sign = d.delta >= 0 ? '+' : '';
+              return `${d.fromSt}→${d.id} ${sign}${d.delta.toFixed(1)}`;
+            })
+            .join(' · ');
+
+    const len = primary.lewdStats.static.ovulationCycleLength || 28;
+    const shift = describeCycleShift({
+      before: cycleBefore,
+      after: physio.hormones,
+      lengthDays: len,
+      lustFrom: lusted.lustFrom,
+      lustTo: lusted.lustTo,
+    });
+    const soilCues = deriveSoilCues(afterSoil);
+    const cycleNote = shift.changed
+      ? ` · she's different: ${shift.summary}`
+      : physio.hormones
+        ? ` · cycle ${formatCycleLabel(physio.hormones, len)}`
+        : '';
+    const soilNote =
+      soilCues.summary !== 'clean' ? ` · soil ${soilCues.summary}` : '';
+    const reproBits: string[] = [];
+    if (repro.ovumSpawned) reproBits.push('ovum released');
+    if (repro.ovumExpired) reproBits.push('ovum expired');
+    if (repro.conceived) reproBits.push(repro.conceptionNote ?? 'conceived');
+    else if (afterSoil.sex === 'F') {
+      const d = describeReproduction(afterSoil);
+      if (d !== 'no ovum / no cohorts') reproBits.push(d);
     }
-    const summary = result.deltas
-      .map((d) => {
-        const sign = d.delta >= 0 ? '+' : '';
-        const bSign = d.baselineTo - d.baselineFrom >= 0 ? '+' : '';
-        const bDelta = d.baselineTo - d.baselineFrom;
-        return `${d.id} ${d.from.toFixed(0)}→${d.to.toFixed(0)} (${sign}${d.delta.toFixed(1)}; bl ${d.baselineFrom.toFixed(0)}→${d.baselineTo.toFixed(0)} ${bSign}${bDelta.toFixed(1)}, anc ${d.anchor.toFixed(0)})`;
-      })
-      .join(' · ');
-    pushTaskLog(`${primary.name}: pass ${label} — ${summary}`);
+    const reproNote = reproBits.length ? ` · repro ${reproBits.join(' · ')}` : '';
+
+    pushTaskLog(
+      `${primary.name}: pass ${label} — ${pressureSummary}${cycleNote}${soilNote}${reproNote} || ST ${relSummary}` +
+        (crystalSummary ? ` || LT ${crystalSummary}` : '') +
+        partnerShiftSummary
+    );
   };
 
   const onRunTask = () => {
@@ -676,26 +968,115 @@ function SocialLab() {
     const names = partner
       ? `${primary.name} + ${partner.name}`
       : primary.name;
+
+    if (task.id === 'do_laundry') {
+      const before = deriveSoilCues(primary);
+      const cleaned = launderUnderwear(primary);
+      setPrimary(cleaned);
+      const after = deriveSoilCues(cleaned);
+      pushTaskLog(
+        `${primary.name} laundry: ${before.summary} → ${after.summary}`
+      );
+      if (partner) {
+        setRelGraph((prev) => {
+          let g = ensureBidirectional(prev, partner, primary);
+          g = nudgeShortTerm(g, primary, partner, 'gratitude', 14);
+          g = nudgeShortTerm(g, partner, primary, 'warmth', 8);
+          return g;
+        });
+        pushTaskLog(`${primary.name}→${partner.name}: gratitude/warmth from shared wash.`);
+      }
+      return;
+    }
+
+    if (task.id === 'bathe' || task.id === 'bathe_together') {
+      let nextPrimary = batheClearSkinSoil(primary);
+      // Soft shame relief when washing off blood/semen urgency
+      const shame = Math.max(0, (nextPrimary.socialStats.dynamic.shame ?? 0) - 4);
+      nextPrimary = {
+        ...nextPrimary,
+        socialStats: {
+          ...nextPrimary.socialStats,
+          dynamic: { ...nextPrimary.socialStats.dynamic, shame },
+        },
+      };
+      setPrimary(nextPrimary);
+      pushTaskLog(
+        `${primary.name} bathes — skin soil cleared · ${deriveSoilCues(nextPrimary).summary}`
+      );
+      if (task.id === 'bathe_together' && partner) {
+        const nextPartner = batheClearSkinSoil(partner);
+        setPartner(nextPartner);
+        setRelGraph((prev) => {
+          let g = ensureBidirectional(prev, primary, partner);
+          g = nudgeShortTerm(g, primary, partner, 'warmth', 16);
+          g = nudgeShortTerm(g, partner, primary, 'warmth', 16);
+          if (sexualDesireAllowed(primary, partner)) {
+            g = nudgeShortTerm(g, primary, partner, 'desireHeat', 10);
+          }
+          if (sexualDesireAllowed(partner, primary)) {
+            g = nudgeShortTerm(g, partner, primary, 'desireHeat', 10);
+          }
+          return g;
+        });
+        pushTaskLog(`Bathe together: ${names} warmth up; desireHeat if attraction allows.`);
+      }
+      return;
+    }
+
     pushTaskLog(
       `Stub: “${task.label}” with ${names}. Effects TBD (${task.stubEffects.join(', ')}).`
     );
-    // Tiny lab feedback: shared work nudges affinity if a pair exists
-    if (pairKey && partner) {
-      setRelMap((prev) => {
-        const cur = prev[pairKey] ?? defaultRelationshipScores();
-        const affinity = Math.min(100, cur.affinity + 2);
-        return { ...prev, [pairKey]: { ...cur, affinity } };
+    // Tiny lab feedback: shared work nudges mutual short-term warmth + tiny familiarity
+    if (partner) {
+      setRelGraph((prev) => {
+        let g = ensureBidirectional(prev, primary, partner);
+        g = nudgeShortTerm(g, primary, partner, 'warmth', 12);
+        g = nudgeShortTerm(g, partner, primary, 'warmth', 12);
+        g = nudgeLongTerm(g, primary, partner, 'familiarity', 2);
+        g = nudgeLongTerm(g, partner, primary, 'familiarity', 2);
+        return g;
       });
-      pushTaskLog(`Dev nudge: ${primary.name}↔${partner.name} affinity +2.`);
+      pushTaskLog(
+        `Dev nudge: ${primary.name}↔${partner.name} warmth +12 (both ways), familiarity +2.`
+      );
     }
   };
 
-  const onAxisChange = (axis: keyof RelationshipScores, value: number) => {
-    if (!pairKey) return;
-    setRelMap((prev) => {
-      const cur = prev[pairKey] ?? defaultRelationshipScores();
-      return { ...prev, [pairKey]: { ...cur, [axis]: value } };
-    });
+  const onSetLongTermAxis = (
+    from: DetailedUnit,
+    to: DetailedUnit,
+    id: LongTermRelationshipId,
+    value: number
+  ) => {
+    setRelGraph((prev) => setLongTerm(prev, from, to, id, value));
+  };
+
+  const onSetShortTermAxis = (
+    from: DetailedUnit,
+    to: DetailedUnit,
+    id: ShortTermRelationshipId,
+    value: number
+  ) => {
+    setRelGraph((prev) => setShortTerm(prev, from, to, id, value));
+  };
+
+  const onNudgeLongTermAxis = (
+    from: DetailedUnit,
+    to: DetailedUnit,
+    id: LongTermRelationshipId,
+    delta: number
+  ) => {
+    setRelGraph((prev) => nudgeLongTerm(prev, from, to, id, delta));
+  };
+
+  const onNudgeShortTermAxis = (
+    from: DetailedUnit,
+    to: DetailedUnit,
+    id: ShortTermRelationshipId,
+    delta: number
+  ) => {
+    setRelGraph((prev) => nudgeShortTerm(prev, from, to, id, delta));
   };
 
   return (
@@ -808,6 +1189,34 @@ function SocialLab() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             <div style={cardStyle}>
               <h2 style={{ margin: '0 0 4px', fontSize: '1.35rem' }}>{primary.name}</h2>
+              {(() => {
+                const h = hormonesForUnit(primary);
+                if (!h) return null;
+                const len = primary.lewdStats.static.ovulationCycleLength;
+                return (
+                  <p style={{ margin: '0 0 8px', fontSize: 12, opacity: 0.65 }}>
+                    {formatCycleLabel(h, len)} · E {h.estrogen.toFixed(1)} · T{' '}
+                    {h.testosterone.toFixed(2)} · P {h.progesterone.toFixed(1)}
+                    {isInFertileWindow(h, len) ? ' · fertile window' : ''}
+                  </p>
+                );
+              })()}
+              {(() => {
+                const soil = deriveSoilCues(primary);
+                if (soil.summary === 'clean' && soil.wetness.size === 'none') {
+                  return null;
+                }
+                return (
+                  <div style={{ margin: '0 0 8px', fontSize: 12, color: '#fcd34d' }}>
+                    <div>Soil · {soil.summary}</div>
+                    {soil.wetness.size !== 'none' ? (
+                      <div style={{ marginTop: 4, opacity: 0.9, lineHeight: 1.4 }}>
+                        {soil.wetness.flavor}
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })()}
               <p style={{ margin: 0, opacity: 0.7, fontSize: 13 }}>
                 {primary.class} · {primary.sex} · age {primary.age}
               </p>
@@ -842,8 +1251,11 @@ function SocialLab() {
             <RelationshipsPanel
               primary={primary}
               partner={partner}
-              scores={pairScores}
-              onAxisChange={onAxisChange}
+              graph={relGraph}
+              onSetLongTerm={onSetLongTermAxis}
+              onSetShortTerm={onSetShortTermAxis}
+              onNudgeLongTerm={onNudgeLongTermAxis}
+              onNudgeShortTerm={onNudgeShortTermAxis}
             />
           </div>
         </div>

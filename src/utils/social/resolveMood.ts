@@ -11,6 +11,11 @@ import {
   type TemperamentPrimary,
 } from '../../data/social/temperaments';
 import type { Sex, Unit as DetailedUnit } from '../../types/characters';
+import { cycleTellForUnit } from '../../data/social/cycleLexicon';
+import {
+  cyclePressureBias,
+  hormonesForUnit,
+} from '../lewd/ovulationCycle';
 import { derivePainLoad } from './painLoad';
 import { readPersonalizedValue } from './durablePressureState';
 import { MOOD_RESOLVE_TUNING as T } from './moodResolveTuning';
@@ -55,6 +60,8 @@ export interface ResolvedMood {
   secondaryScore: number;
   flavor: string;
   tell: string;
+  /** Cycle phenomenology tell (null for non-cycling cast). */
+  cycleTell: string | null;
   receptivity: MoodReceptivity;
   rationale: string[];
   /** Why tint was skipped, when relevant (lab). */
@@ -289,14 +296,17 @@ function pickPrimaryAndTint(scores: Record<MoodClass, number>): {
 }
 
 export function levelsFromUnit(unit: DetailedUnit): AffectLevels {
+  const hormones = hormonesForUnit(unit);
+  const bias = hormones ? cyclePressureBias(hormones.phase) : null;
+  const clamp = (n: number) => Math.max(0, Math.min(100, n));
   return {
     lust: readPersonalizedValue(unit, 'lust'),
     belonging: readPersonalizedValue(unit, 'belonging'),
-    stress: readPersonalizedValue(unit, 'stress'),
-    energy: readPersonalizedValue(unit, 'energy'),
+    stress: clamp(readPersonalizedValue(unit, 'stress') + (bias?.stress ?? 0)),
+    energy: clamp(readPersonalizedValue(unit, 'energy') + (bias?.energy ?? 0)),
     agency: readPersonalizedValue(unit, 'agency'),
     pride: readPersonalizedValue(unit, 'pride'),
-    shame: readPersonalizedValue(unit, 'shame'),
+    shame: clamp(readPersonalizedValue(unit, 'shame') + (bias?.shame ?? 0)),
     painLoad: derivePainLoad(unit.combatStats.itemizedHealth),
   };
 }
@@ -350,6 +360,8 @@ export function resolveMood(unit: DetailedUnit): ResolvedMood {
     unit.sex,
     picked.secondary
   );
+  const cycleTell = cycleTellForUnit(unit);
+  const tellWithCycle = cycleTell ? `${tell} — and ${cycleTell}` : tell;
 
   return {
     temperament,
@@ -362,7 +374,8 @@ export function resolveMood(unit: DetailedUnit): ResolvedMood {
     primaryScore: picked.primaryScore,
     secondaryScore: picked.secondaryScore,
     flavor: line,
-    tell,
+    tell: tellWithCycle,
+    cycleTell,
     receptivity: blendReceptivity(
       picked.primary,
       picked.secondary,

@@ -5,6 +5,7 @@ import {
   type TemperamentPressureTable,
 } from '../../data/social/durablePressures';
 import type { Unit as DetailedUnit } from '../../types/characters';
+import { standingLustTarget } from '../lewd/lustDrive';
 import { derivePainLoad } from './painLoad';
 import { PRESSURE_DRIFT_TUNING as T } from './pressureDriftTuning';
 import { bandFrom100, type AffectBand } from './resolveMood';
@@ -203,6 +204,14 @@ export function driftDurablePressures(
   };
 
   for (const id of PERSONALIZED_PRESSURES) {
+    // Option A: lust meter is owned by advanceStandingLust (libido × cycle).
+    // Temperament only supplies rates/expression there — do not dual-drift lust here.
+    // Mirror the standing target into the pressure baseline for lab display only.
+    if (id === 'lust') {
+      nextBaselines[id] = clamp100(standingLustTarget(hydrated));
+      continue;
+    }
+
     const rateProfile = profile[id];
     const anchor = rateProfile.baseline;
     const value0 = readPersonalizedValue(hydrated, id);

@@ -173,6 +173,22 @@ export interface CombatBonus {
   };
 }
 
+/** Fresh damp vs dried residue on cloth (0–100 each). */
+export interface FluidSoilChannel {
+  wet: number;
+  dry: number;
+}
+
+export type FluidSoilKind =
+  | 'blood'
+  | 'sweat'
+  | 'semen'
+  | 'urine'
+  | 'vaginalDischarge'
+  | 'arousalFluid';
+
+export type FluidSoilBag = Record<FluidSoilKind, FluidSoilChannel>;
+
 export interface LewdBonus {
   bonus: {
     allure: number;
@@ -180,14 +196,8 @@ export interface LewdBonus {
     libido: number;
     dominance: number;
   };
-  soiled?: {
-    blood: number;
-    sweat: number;
-    semen: number;
-    urine: number;
-    vaginalDischarge: number;
-    arousalFluid: number;
-  };
+  /** Cloth soil — architecture supports any garment; v1 writers target underwear. */
+  soiled?: Partial<FluidSoilBag>;
 }
 
 export interface ItemFlags {

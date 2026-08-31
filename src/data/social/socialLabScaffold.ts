@@ -101,30 +101,40 @@ export const SOCIAL_TASK_TEMPLATES: SocialTaskTemplate[] = [
     maxParticipants: 2,
     stubEffects: ['+gratitude', '−stress (patient)', 'skill check stub'],
   },
+  {
+    id: 'do_laundry',
+    label: 'Do laundry',
+    kind: 'chore',
+    blurb: 'Wash soiled underthings and cloth — blood, seed, and travel grime.',
+    minParticipants: 1,
+    maxParticipants: 2,
+    stubEffects: [
+      'clear underwear soil',
+      '+gratitude if washed for another',
+      '−shame (owner)',
+    ],
+  },
+  {
+    id: 'bathe',
+    label: 'Bathe',
+    kind: 'chore',
+    blurb: 'Wash the body clean; rinse crotch soil and camp dust.',
+    minParticipants: 1,
+    maxParticipants: 1,
+    stubEffects: ['clear skin crotchSoil', '−wantsBath', '−stress soft'],
+  },
+  {
+    id: 'bathe_together',
+    label: 'Bathe together',
+    kind: 'leisure',
+    blurb: 'Share water and wash — practical, intimate, or both.',
+    minParticipants: 2,
+    maxParticipants: 2,
+    stubEffects: [
+      'clear skin soil (both)',
+      '+warmth',
+      'desireHeat if attracted',
+    ],
+  },
 ];
 
-/** Dev-facing relationship facets (placeholder scores 0–100). */
-export const RELATIONSHIP_AXES = [
-  { id: 'affinity', label: 'Affinity', blurb: 'General warmth / liking' },
-  { id: 'trust', label: 'Trust', blurb: 'Reliability under pressure' },
-  { id: 'respect', label: 'Respect', blurb: 'Esteem for competence / honor' },
-  { id: 'tension', label: 'Tension', blurb: 'Friction, rivalry, unresolved heat' },
-] as const;
-
-export type RelationshipAxisId = (typeof RELATIONSHIP_AXES)[number]['id'];
-
-export type RelationshipScores = Record<RelationshipAxisId, number>;
-
-export function defaultRelationshipScores(): RelationshipScores {
-  return {
-    affinity: 50,
-    trust: 50,
-    respect: 50,
-    tension: 20,
-  };
-}
-
-/** Stable unordered pair key for lab relationship map. */
-export function relationshipPairKey(a: string, b: string): string {
-  return a < b ? `${a}::${b}` : `${b}::${a}`;
-}

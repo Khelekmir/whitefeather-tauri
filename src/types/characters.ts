@@ -8,6 +8,7 @@ import {
   createEmptyEquipmentLoadout,
   type EquipmentLoadout,
   type EquipmentLoadoutPatch,
+  type FluidSoilBag,
 } from './items';
 
 export type { Position };
@@ -317,18 +318,102 @@ export interface LewdStatic {
     oralReceiveFemale: LewdExperience;
   };
   submissive: boolean;
+  /**
+   * Ilian Whitewing culture — sapphic bonding is normative (mentor/mentee etc.).
+   * Counts as native attraction toward women for Desire gating.
+   */
+  whitewing: boolean;
+  /**
+   * Non-Ilian (or loosely any) woman inducted into sapphic practice by a Whitewing,
+   * or colloquially any woman engaging in sapphic behavior. Counts as attraction
+   * toward women once set.
+   */
   whitefeather: boolean;
   attractedToBoys: boolean;
   attractedToGirls: boolean;
+  /** Cycle length in **days** (typically 24–32). */
   ovulationCycleLength: number;
 }
 
+/** Where a sperm cohort enters / where conception is attributed. */
+export type SpermEntrySite =
+  | 'vaginaDeep'
+  | 'vaginaShallow'
+  | 'labia'
+  | 'perineum'
+  | 'anus';
+
+export type OvumStation = 'tubeProximal' | 'tubeDistal' | 'uterine';
+
+/** Live ovum in transit (S4). */
+export interface OvumState {
+  id: string;
+  ageHours: number;
+  station: OvumStation;
+  viabilityHoursLeft: number;
+}
+
+/** Motile semen cohort ascending the tract (S4). */
+export interface SpermCohort {
+  id: string;
+  fromId: string;
+  entrySite: SpermEntrySite;
+  volume: number;
+  motilityHoursLeft: number;
+  /** 0 = entry site, 1 = tube meeting zone. */
+  ascent01: number;
+}
+
+export type PregnancyStatus =
+  | 'ongoing'
+  | 'miscarried'
+  | 'terminated'
+  | 'birthed';
+
+export type ImplantationKind = 'intrauterine' | 'ectopic';
+
+export interface ConceptusState {
+  id: string;
+  stage: 'zygote' | 'embryo' | 'fetus';
+  /** Stub for future child health (0–100). */
+  health: number;
+}
+
+export interface PregnancyState {
+  /** Cycle-hour stamp at conception (diagnostic). */
+  conceivedAtCycleHour: number;
+  gestationDay: number;
+  fatherId?: string;
+  conceptionSite: SpermEntrySite;
+  fertStation: OvumStation;
+  implantation: ImplantationKind;
+  conceptus: ConceptusState;
+  status: PregnancyStatus;
+}
+
 export interface LewdDynamic {
-  PNS: number;
-  SNS: number;
+  /**
+   * Encounter meters (Arousal / Edge / Discomfort) are ephemeral lab/combat-sex
+   * state — not persisted here. Lust remains the standing lewd drive meter.
+   */
   lust: number;
   timeSinceLast: Record<string, number>;
+  /**
+   * Hours since menses / cycle start (0 … ovulationCycleLength*24).
+   * Not a day index — see `utils/lewd/ovulationCycle.ts`.
+   */
   ovulationCycleCurrent: number;
+  /**
+   * Skin / nude crotch soil (wet→dry). Cloth soil lives on item.lewdStats.soiled.
+   * See `utils/lewd/fluidSoil.ts`.
+   */
+  crotchSoil?: Partial<FluidSoilBag>;
+  /** Live egg in tract, if any. */
+  ovum?: OvumState | null;
+  /** Active motile sperm cohorts. */
+  spermCohorts?: SpermCohort[];
+  /** Ongoing / resolved pregnancy stub. */
+  pregnancy?: PregnancyState | null;
 }
 
 export interface BodyPartLewd {
@@ -597,6 +682,7 @@ export function createDefaultLewdStats(options?: {
         oralReceiveFemale: createDefaultLewdExperience(),
       },
       submissive: false,
+      whitewing: false,
       whitefeather: false,
       attractedToBoys: true,
       attractedToGirls: true,
@@ -604,11 +690,10 @@ export function createDefaultLewdStats(options?: {
       ...options?.static,
     },
     dynamic: {
-      PNS: 0,
-      SNS: 0,
       lust: 0,
       timeSinceLast: {},
-      ovulationCycleCurrent: 1,
+      /** Default ~day 10 follicular (hours). */
+      ovulationCycleCurrent: 10 * 24,
       ...options?.dynamic,
     },
     itemizedLewd: options?.itemizedLewd ?? {},

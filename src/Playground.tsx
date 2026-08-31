@@ -34,6 +34,23 @@ import {
   widmarkR,
 } from './utils/social/bloodAlcohol';
 import type { Unit as DetailedUnit } from './types/characters';
+import { bodilyStateFromHormones } from './utils/lewd/cycleBodilyState';
+import { describeCycleShift } from './utils/lewd/cycleShift';
+import {
+  advanceReproduction,
+  describeReproduction,
+} from './utils/lewd/conception';
+import {
+  advanceFluidSoil,
+  deriveSoilCues,
+} from './utils/lewd/fluidSoil';
+import { advanceStandingLust } from './utils/lewd/lustDrive';
+import {
+  advanceFemalePhysiology,
+  formatCycleLabel,
+  hormonesForUnit,
+  isInFertileWindow,
+} from './utils/lewd/ovulationCycle';
 
 const DEFAULT_ID = 'unit_amberyl';
 
@@ -469,14 +486,36 @@ function LewdPanel({ unit }: { unit: DetailedUnit }) {
       </div>
 
       <StatBar label="Lust" value={d.lust ?? 0} max={100} color="#e879f9" />
-      <div style={{ fontSize: 12, opacity: 0.85, marginBottom: 10 }}>
-        <Pill tone="hot">{`PNS ${d.PNS ?? 0}`}</Pill>
-        <Pill tone="hot">{`SNS ${d.SNS ?? 0}`}</Pill>
-        <Pill>{`Cycle ${d.ovulationCycleCurrent ?? 0}/${s.ovulationCycleLength}`}</Pill>
+      <div style={{ fontSize: 12, opacity: 0.85, marginBottom: 10, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+        {(() => {
+          const h = hormonesForUnit(unit);
+          if (!h) {
+            return <Pill>No cycle (♂)</Pill>;
+          }
+          const fertile = isInFertileWindow(h, s.ovulationCycleLength);
+          const body = bodilyStateFromHormones(h, s.ovulationCycleLength);
+          const soil = deriveSoilCues(unit);
+          return (
+            <>
+              <Pill>{formatCycleLabel(h, s.ovulationCycleLength)}</Pill>
+              <Pill>{`Mucus ${body.mucusKind}`}</Pill>
+              <Pill>{`Wet ${(body.wetness01 * 100).toFixed(0)}%`}</Pill>
+              <Pill>{`E ${h.estrogen.toFixed(1)} · T ${h.testosterone.toFixed(2)} · P ${h.progesterone.toFixed(1)}`}</Pill>
+              {fertile ? <Pill tone="hot">Fertile window</Pill> : null}
+              {soil.soiledPanty ? <Pill tone="hot">Soiled panty</Pill> : null}
+              {soil.soiledPeriodCloth ? <Pill tone="hot">Period cloth</Pill> : null}
+              {soil.wantsBath ? <Pill>Wants bath</Pill> : null}
+              {soil.wetness.size !== 'none' ? (
+                <Pill tone="hot">{soil.wetness.label}</Pill>
+              ) : null}
+            </>
+          );
+        })()}
       </div>
 
       <div style={{ marginBottom: 12 }}>
         {s.submissive ? <Pill tone="hot">Submissive</Pill> : <Pill>Dominant lean</Pill>}
+        {s.whitewing ? <Pill tone="hot">Whitewing</Pill> : null}
         {s.whitefeather ? <Pill tone="hot">Whitefeather</Pill> : null}
         {s.attractedToBoys ? <Pill>Attracted to boys</Pill> : null}
         {s.attractedToGirls ? <Pill>Attracted to girls</Pill> : null}
@@ -583,8 +622,14 @@ function Playground() {
     if (!unit) return;
     const before = unit.socialStats.dynamic.BAC;
     const gutBefore = unit.socialStats.dynamic.unabsorbedEthanolG ?? 0;
+    const cycleBefore = hormonesForUnit(unit);
+    const prevCycleHour = unit.lewdStats.dynamic.ovulationCycleCurrent ?? 0;
     const result = tickDrinking(unit, held, hours);
-    setUnit(result.unit);
+    const physio = advanceFemalePhysiology(result.unit, hours);
+    const lusted = advanceStandingLust(physio.unit, hours);
+    const repro = advanceReproduction(lusted.unit, hours, { prevCycleHour });
+    const afterSoil = advanceFluidSoil(repro.unit, hours);
+    setUnit(afterSoil);
     setHeld(result.held);
     const mins = hours * 60;
     const timeLabel =
@@ -605,11 +650,32 @@ function Playground() {
       parts.push(`metabolized −${formatBac(result.metabolized)}`);
     }
     parts.push(
-      `BAC ${formatBac(before)} → ${formatBac(result.unit.socialStats.dynamic.BAC)} (${result.unit.socialStats.dynamic.intoxicationStage})`
+      `BAC ${formatBac(before)} → ${formatBac(afterSoil.socialStats.dynamic.BAC)} (${afterSoil.socialStats.dynamic.intoxicationStage})`
     );
     parts.push(`gut ${formatEthanolG(gutBefore)}→${formatEthanolG(gutAfter)}g`);
     if (result.held) parts.push(`${formatMl(result.held.remainingMl)} ml left`);
     else if (held) parts.push('glass empty');
+    const len = unit.lewdStats.static.ovulationCycleLength || 28;
+    const shift = describeCycleShift({
+      before: cycleBefore,
+      after: physio.hormones,
+      lengthDays: len,
+      lustFrom: lusted.lustFrom,
+      lustTo: lusted.lustTo,
+    });
+    if (shift.changed) {
+      parts.push(`she's different: ${shift.summary}`);
+    } else if (physio.hormones) {
+      parts.push(`cycle ${formatCycleLabel(physio.hormones, len)}`);
+    }
+    const soil = deriveSoilCues(afterSoil);
+    if (soil.summary !== 'clean') parts.push(`soil ${soil.summary}`);
+    if (repro.ovumSpawned) parts.push('ovum released');
+    if (repro.conceived) parts.push(repro.conceptionNote ?? 'conceived');
+    else if (afterSoil.sex === 'F') {
+      const d = describeReproduction(afterSoil);
+      if (d !== 'no ovum / no cohorts') parts.push(d);
+    }
     pushDrinkLog(parts.join(' · '));
   };
 

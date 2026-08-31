@@ -6,6 +6,7 @@ import CharacterDetail from './CharacterDetail';
 import Battleground from './Battleground';
 import Playground from './Playground';
 import SocialLab from './SocialLab';
+import LewdLab from './LewdLab';
 import { useGameStore } from './store/gameStore';
 
 function TitleScreen() {
@@ -41,6 +42,9 @@ function TitleScreen() {
         </Link>
         <Link to="/social" style={menuButtonStyle}>
           Social Hall
+        </Link>
+        <Link to="/lewd" style={menuButtonStyle}>
+          Lewd Lab
         </Link>
       </div>
 
@@ -82,6 +86,7 @@ function App() {
         <Route path="/characters/detailed/:id" element={<CharacterDetail />} />
         <Route path="/battleground" element={<Battleground />} />
         <Route path="/social" element={<SocialLab />} />
+        <Route path="/lewd" element={<LewdLab />} />
         <Route path="/playground" element={<Playground />} />
       </Routes>
     </Router>
