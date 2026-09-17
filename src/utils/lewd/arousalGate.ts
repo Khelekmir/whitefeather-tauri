@@ -1,3 +1,7 @@
+import {
+  arousalSoftCapForErogenous,
+  erogenousRank,
+} from './erogenous';
 import { LEWD_TUNING as T } from './lewdTuning';
 
 export type ArousalReadiness = 'ok' | 'softUnready' | 'hardUnready';
@@ -5,10 +9,16 @@ export type ArousalReadiness = 'ok' | 'softUnready' | 'hardUnready';
 /**
  * How much arousal the recipient needs before this act/target feels welcome.
  * Light kisses/holds → ~0; deep penetration / intense genital → high 60s–70s.
+ *
+ * When `targetCatalogSensitivity` is provided, required is clamped so the act
+ * cannot demand more meter than the zone’s soft-cap can sustain
+ * (`softCap − softSlack`). Prevents kissTongue-on-mouth style traps where
+ * intimacy math asks for ~56 but the zone caps ~44.
  */
 export function requiredArousalForAct(
   actionIntimacy: number,
-  targetIntimacy: number
+  targetIntimacy: number,
+  targetCatalogSensitivity?: number
 ): number {
   const G = T.arousalGate;
   const fromAct =
@@ -16,7 +26,18 @@ export function requiredArousalForAct(
   const fromTarget =
     Math.max(0, targetIntimacy - G.targetIntimacyBonusStart) *
     G.arousalPerTargetIntimacy;
-  return Math.min(G.maxRequired, fromAct + fromTarget);
+  let required = Math.min(G.maxRequired, fromAct + fromTarget);
+
+  if (targetCatalogSensitivity != null && targetCatalogSensitivity > 0) {
+    const softCap = arousalSoftCapForErogenous(
+      erogenousRank(targetCatalogSensitivity)
+    );
+    // Leave room so “ok” at the ceiling isn’t instantly soft-unready on a dip.
+    const sustainMax = Math.max(0, softCap - G.softSlack);
+    required = Math.min(required, sustainMax);
+  }
+
+  return required;
 }
 
 /**

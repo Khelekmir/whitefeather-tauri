@@ -1,5 +1,6 @@
 import type { BodyPartId, ItemizedHealth } from '../../types/characters';
 import { roundToThousandths } from './penalties';
+import { calcTraumaPenalties } from './traumaFlags';
 
 /**
  * Functional penalties from part.health — independent of bleed / bloodLoss.
@@ -53,23 +54,33 @@ export interface PerformanceFactors {
   dodge: number;
   /** Worst foot health (quick UI signal). */
   worstFootHealth: number;
+  /** Trauma-only mults (independent of health). */
+  traumaMobilityMult: number;
+  traumaDodgeMult: number;
 }
 
 export function calcPerformanceFromItemized(
   itemizedHealth: ItemizedHealth
 ): PerformanceFactors {
+  const trauma = calcTraumaPenalties(itemizedHealth);
   const mobility = roundToThousandths(
-    weightedHealthFactor(itemizedHealth, MOBILITY_PARTS)
+    weightedHealthFactor(itemizedHealth, MOBILITY_PARTS) * trauma.mobilityMult
   );
   const dodge = roundToThousandths(
-    weightedHealthFactor(itemizedHealth, DODGE_PARTS)
+    weightedHealthFactor(itemizedHealth, DODGE_PARTS) * trauma.dodgeMult
   );
   const worstFootHealth = Math.min(
     itemizedHealth.footLeft?.health ?? 1,
     itemizedHealth.footRight?.health ?? 1
   );
 
-  return { mobility, dodge, worstFootHealth };
+  return {
+    mobility,
+    dodge,
+    worstFootHealth,
+    traumaMobilityMult: trauma.mobilityMult,
+    traumaDodgeMult: trauma.dodgeMult,
+  };
 }
 
 /** Dev helper: list parts that are dragging mobility. */

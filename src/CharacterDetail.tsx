@@ -1,4 +1,4 @@
-import { useMemo, type CSSProperties } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import {
   BODY_PARTS,
@@ -20,15 +20,64 @@ import {
   getDetailedCharacter,
   listDetailedCharacters,
 } from './data/detailedPlaceholderCharacters';
-import {
-  DETAILED_ITEM_BANK,
-  getCombatCastInventory,
-} from './data/starters/combatCastInventory';
+import { getCombatCastInventory } from './data/starters/combatCastInventory';
+import type { FluidSoilBag, Item, ItemSlot } from './types/items';
 import {
   getProtectingArmor,
   listEquippedResolved,
   sumEquippedWeight,
 } from './utils/items/resolveItem';
+import {
+  discardEquipped,
+  equipItem,
+  listUnequippedOwned,
+  unequipSlot,
+  unequipSlots,
+  UNDRESS_ORDER_BOTTOM,
+  UNDRESS_ORDER_TORSO,
+} from './utils/items/equipGear';
+import {
+  useBandageOnPart,
+  useVulneraryOnPart,
+  BANDAGE_TEMPLATE_ID,
+  VULNERARY_TEMPLATE_ID,
+} from './utils/combat/woundCare';
+import {
+  clearTraumaFlag,
+  highestTrauma,
+  setTraumaFlag,
+  type TraumaLevel,
+} from './utils/combat/traumaFlags';
+
+const wardrobeBtn: CSSProperties = {
+  padding: '6px 12px',
+  fontSize: 12,
+  background: 'rgba(167,139,250,0.18)',
+  color: '#e9d5ff',
+  border: '1px solid rgba(167,139,250,0.45)',
+  borderRadius: 6,
+  cursor: 'pointer',
+};
+
+/** Clone unit + owned bank; resync equippedSlot from loadout (lab-safe). */
+function cloneWardrobe(unitId: string): {
+  unit: DetailedUnit;
+  itemsById: Record<string, Item>;
+} | null {
+  const src = getDetailedCharacter(unitId);
+  if (!src) return null;
+  const kit = getCombatCastInventory(unitId);
+  const unit = structuredClone(src) as DetailedUnit;
+  const itemsById = structuredClone(kit?.items ?? {}) as Record<string, Item>;
+  for (const item of Object.values(itemsById)) {
+    item.equippedSlot = null;
+  }
+  for (const slot of EQUIPMENT_SLOTS) {
+    const id = unit.equipment[slot];
+    if (id && itemsById[id]) itemsById[id].equippedSlot = slot;
+  }
+  return { unit, itemsById };
+}
 
 function healthColor(health: number): string {
   if (health >= 0.95) return '#4ade80';
@@ -71,10 +120,11 @@ function FractionBar({
 
 function injuryTags(part: BodyPartHealth): string[] {
   const tags: string[] = [];
-  if (part.bruise) tags.push('bruise');
-  if (part.sprain) tags.push('sprain');
-  if (part.fracture) tags.push('fracture');
-  if (part.broken) tags.push('broken');
+  if ((part.bruise ?? 0) > 0.05) {
+    tags.push(`bruise ${(part.bruise * 100).toFixed(0)}%`);
+  }
+  const trauma = highestTrauma(part);
+  if (trauma !== 'none') tags.push(trauma);
   if (part.dressed) tags.push('dressed');
   if (part.vulnerary) tags.push('vulnerary');
   if (part.bleed > 0) tags.push(`bleed ${(part.bleed * 100).toFixed(0)}%`);
@@ -82,7 +132,23 @@ function injuryTags(part: BodyPartHealth): string[] {
   return tags;
 }
 
-function ItemizedHealthTable({ unit }: { unit: DetailedUnit }) {
+function ItemizedHealthTable({
+  unit,
+  bandageCount,
+  vulneraryCount,
+  onBandage,
+  onVulnerary,
+  onLabInjure,
+  onLabTrauma,
+}: {
+  unit: DetailedUnit;
+  bandageCount: number;
+  vulneraryCount: number;
+  onBandage: (part: BodyPartId) => void;
+  onVulnerary: (part: BodyPartId) => void;
+  onLabInjure: (part: BodyPartId) => void;
+  onLabTrauma: (part: BodyPartId, level: TraumaLevel) => void;
+}) {
   const rows = useMemo(() => {
     return BODY_PARTS.map((id: BodyPartId) => {
       const part = unit.combatStats.itemizedHealth[id];
@@ -98,7 +164,8 @@ function ItemizedHealthTable({ unit }: { unit: DetailedUnit }) {
         Tracking {BODY_PARTS.length} body areas (0–1 health).{' '}
         {injuredOnly.length === 0
           ? 'No active injuries.'
-          : `${injuredOnly.length} area(s) not fully healthy.`}
+          : `${injuredOnly.length} area(s) not fully healthy.`}{' '}
+        Care stock: {bandageCount} bandage(s), {vulneraryCount} vulnerary.
       </p>
 
       <div style={{ overflowX: 'auto' }}>
@@ -115,11 +182,14 @@ function ItemizedHealthTable({ unit }: { unit: DetailedUnit }) {
               <th style={{ padding: '8px 10px', width: 140 }}>Health</th>
               <th style={{ padding: '8px 10px', width: 70 }}>%</th>
               <th style={{ padding: '8px 10px' }}>Flags / bleed</th>
+              <th style={{ padding: '8px 10px', width: 200 }}>Care</th>
             </tr>
           </thead>
           <tbody>
             {rows.map(({ id, part, tags }) => {
               const dimmed = part.health >= 1 && tags.length === 0;
+              const needsCare =
+                part.health < 1 || part.bleed > 0 || part.internalBleed > 0;
               return (
                 <tr
                   key={id}
@@ -161,6 +231,87 @@ function ItemizedHealthTable({ unit }: { unit: DetailedUnit }) {
                         ))}
                       </div>
                     )}
+                  </td>
+                  <td style={{ padding: '8px 10px' }}>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                      {needsCare ? (
+                        <>
+                          <button
+                            type="button"
+                            style={{ ...wardrobeBtn, padding: '2px 8px', fontSize: 11 }}
+                            title={
+                              part.dressed
+                                ? 'Already bandaged'
+                                : bandageCount > 0
+                                  ? 'Consume field bandage'
+                                  : 'Lab free apply (no stock)'
+                            }
+                            onClick={() => onBandage(id)}
+                          >
+                            Bandage
+                          </button>
+                          <button
+                            type="button"
+                            style={{ ...wardrobeBtn, padding: '2px 8px', fontSize: 11 }}
+                            title={
+                              part.vulnerary
+                                ? 'Already salved'
+                                : vulneraryCount > 0
+                                  ? 'Consume vulnerary'
+                                  : 'Lab free apply (no stock)'
+                            }
+                            onClick={() => onVulnerary(id)}
+                          >
+                            Vulnerary
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          type="button"
+                          style={{
+                            ...wardrobeBtn,
+                            padding: '2px 8px',
+                            fontSize: 11,
+                            opacity: 0.7,
+                          }}
+                          onClick={() => onLabInjure(id)}
+                        >
+                          Lab injure
+                        </button>
+                      )}
+                      {(['sprain', 'fracture', 'broken'] as TraumaLevel[]).map(
+                        (level) => (
+                          <button
+                            key={level}
+                            type="button"
+                            style={{
+                              ...wardrobeBtn,
+                              padding: '2px 6px',
+                              fontSize: 10,
+                              opacity:
+                                highestTrauma(part) === level ? 1 : 0.55,
+                            }}
+                            title={`Set ${level} (independent of health)`}
+                            onClick={() => onLabTrauma(id, level)}
+                          >
+                            {level}
+                          </button>
+                        )
+                      )}
+                      {highestTrauma(part) !== 'none' ? (
+                        <button
+                          type="button"
+                          style={{
+                            ...wardrobeBtn,
+                            padding: '2px 6px',
+                            fontSize: 10,
+                          }}
+                          onClick={() => onLabTrauma(id, 'none')}
+                        >
+                          clear
+                        </button>
+                      ) : null}
+                    </div>
                   </td>
                 </tr>
               );
@@ -217,9 +368,57 @@ function coverageLabelList(coverage: Record<string, number | undefined>): string
     .join(' · ');
 }
 
-function EquipmentLoadoutTable({ unit }: { unit: DetailedUnit }) {
-  const kit = getCombatCastInventory(unit.id);
-  const itemsById = kit?.items ?? DETAILED_ITEM_BANK;
+function bagHasSoil(bag: Partial<FluidSoilBag>): boolean {
+  return Object.values(bag).some(
+    (ch) => ch && ((ch.wet ?? 0) > 0.5 || (ch.dry ?? 0) > 0.5)
+  );
+}
+
+function formatSoilBrief(bag: Partial<FluidSoilBag>): string {
+  const kinds: (keyof FluidSoilBag)[] = [
+    'blood',
+    'sweat',
+    'semen',
+    'urine',
+    'vaginalDischarge',
+    'arousalFluid',
+  ];
+  return kinds
+    .map((k) => {
+      const ch = bag[k];
+      if (!ch) return null;
+      const wet = ch.wet ?? 0;
+      const dry = ch.dry ?? 0;
+      if (wet < 0.5 && dry < 0.5) return null;
+      const bits = [
+        wet >= 0.5 ? `wet ${wet.toFixed(0)}` : null,
+        dry >= 0.5 ? `dry ${dry.toFixed(0)}` : null,
+      ].filter(Boolean);
+      return `${k} ${bits.join('/')}`;
+    })
+    .filter(Boolean)
+    .join(' · ');
+}
+
+function WardrobePanel({
+  unit,
+  itemsById,
+  note,
+  onUnequip,
+  onEquip,
+  onDiscard,
+  onPeel,
+  onReset,
+}: {
+  unit: DetailedUnit;
+  itemsById: Record<string, Item>;
+  note: string | null;
+  onUnequip: (slot: ItemSlot) => void;
+  onEquip: (itemId: string) => void;
+  onDiscard: (slot: ItemSlot) => void;
+  onPeel: (slots: ItemSlot[], label: string) => void;
+  onReset: () => void;
+}) {
   const resolvedRows = listEquippedResolved(unit.equipment, itemsById);
   const totalWeight = sumEquippedWeight(unit.equipment, itemsById);
   const stomachLayers = getProtectingArmor('stomachUpper', unit.equipment, itemsById);
@@ -231,6 +430,7 @@ function EquipmentLoadoutTable({ unit }: { unit: DetailedUnit }) {
     const id = unit.equipment[slot];
     return id != null && !resolvedRows.some((r) => r.slot === slot);
   });
+  const bag = listUnequippedOwned({ unit, itemsById });
 
   const armorRows = resolvedRows.filter((r) => r.resolved.instance.itemType === 'armor');
   const weaponRows = resolvedRows.filter(
@@ -248,13 +448,16 @@ function EquipmentLoadoutTable({ unit }: { unit: DetailedUnit }) {
     const { instance, template, material, weight, coverage, durabilityRatio } = resolved;
     const isArmor = instance.itemType === 'armor';
     const covText = isArmor ? coverageLabelList(coverage) : '';
+    const ruined = durabilityRatio <= 0;
 
     return (
       <div
         key={slot}
         style={{
           background: 'rgba(255,255,255,0.04)',
-          border: '1px solid rgba(255,255,255,0.12)',
+          border: ruined
+            ? '1px solid rgba(248,113,113,0.45)'
+            : '1px solid rgba(255,255,255,0.12)',
           borderRadius: 10,
           padding: 14,
           display: 'flex',
@@ -286,6 +489,7 @@ function EquipmentLoadoutTable({ unit }: { unit: DetailedUnit }) {
           >
             {instance.itemType}
             {instance.weaponType ? ` · ${instance.weaponType}` : ''}
+            {ruined ? ' · ruined' : ''}
           </span>
         </div>
 
@@ -329,6 +533,12 @@ function EquipmentLoadoutTable({ unit }: { unit: DetailedUnit }) {
             <div>
               <span style={{ opacity: 0.5 }}>Garment length</span>
               <div>{template.garmentLength}</div>
+            </div>
+          )}
+          {template.sleeveStyle && (
+            <div>
+              <span style={{ opacity: 0.5 }}>Sleeve style</span>
+              <div>{template.sleeveStyle}</div>
             </div>
           )}
           {template.footwearLength && (
@@ -387,10 +597,66 @@ function EquipmentLoadoutTable({ unit }: { unit: DetailedUnit }) {
           </div>
         )}
 
+        {isArmor && instance.lewdStats.soiled && bagHasSoil(instance.lewdStats.soiled) ? (
+          <div style={{ fontSize: 12, lineHeight: 1.4 }}>
+            <span style={{ opacity: 0.5 }}>Soil · </span>
+            {formatSoilBrief(instance.lewdStats.soiled)}
+          </div>
+        ) : null}
+
+        {isArmor && instance.panelDurability && Object.keys(instance.panelDurability).length > 0 ? (
+          <div>
+            <div style={{ fontSize: 11, opacity: 0.5, marginBottom: 4 }}>
+              Panel integrity (by area)
+            </div>
+            <div style={{ fontSize: 12, lineHeight: 1.45, opacity: 0.9 }}>
+              {(
+                Object.entries(instance.panelDurability) as [
+                  BodyPartId,
+                  number | undefined,
+                ][]
+              )
+                .filter(([, v]) => v != null)
+                .map(([part, v]) => {
+                  const cov = coverage[part] ?? 0;
+                  const frac = instance.maxDurability > 0 ? (v! / instance.maxDurability) * 100 : 0;
+                  return `${formatBodyPartLabel(part)} ${frac.toFixed(0)}%${
+                    cov > 0 && cov < 1 ? ` (cov ${(cov * 100).toFixed(0)}%)` : ''
+                  }`;
+                })
+                .join(' · ')}
+            </div>
+          </div>
+        ) : null}
+
         <div style={{ fontSize: 11, opacity: 0.45, fontFamily: 'ui-monospace, monospace' }}>
           template: {template.templateId}
           <br />
           id: {instance.id}
+        </div>
+
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 4 }}>
+          <button
+            type="button"
+            style={wardrobeBtn}
+            onClick={() => onUnequip(slot)}
+          >
+            Unequip
+          </button>
+          {ruined && isArmor ? (
+            <button
+              type="button"
+              style={{
+                ...wardrobeBtn,
+                background: 'rgba(244,114,182,0.15)',
+                borderColor: 'rgba(244,114,182,0.45)',
+                color: '#fbcfe8',
+              }}
+              onClick={() => onDiscard(slot)}
+            >
+              Discard ruined
+            </button>
+          ) : null}
         </div>
       </div>
     );
@@ -414,8 +680,13 @@ function EquipmentLoadoutTable({ unit }: { unit: DetailedUnit }) {
 
   return (
     <div>
+      <p style={{ opacity: 0.75, fontSize: 14, marginTop: 0, lineHeight: 1.45 }}>
+        Status wardrobe — equip / unequip owned gear (same API as LewdLab, bathe, Battleground).
+        Unequipped pieces stay owned until discarded.
+      </p>
       <p style={{ opacity: 0.75, fontSize: 14, marginTop: 0 }}>
-        {resolvedRows.length} equipped · gear weight ≈ <strong>{totalWeight.toFixed(2)}</strong>
+        {resolvedRows.length} equipped · {bag.length} owned unequipped · gear weight ≈{' '}
+        <strong>{totalWeight.toFixed(2)}</strong>
         {' · '}
         {emptySlots.length} empty slot{emptySlots.length === 1 ? '' : 's'}
         {unresolved.length > 0 && (
@@ -425,6 +696,41 @@ function EquipmentLoadoutTable({ unit }: { unit: DetailedUnit }) {
           </span>
         )}
       </p>
+
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
+        <button
+          type="button"
+          style={wardrobeBtn}
+          onClick={() => onPeel(UNDRESS_ORDER_TORSO, 'torso')}
+        >
+          Peel torso
+        </button>
+        <button
+          type="button"
+          style={wardrobeBtn}
+          onClick={() => onPeel(UNDRESS_ORDER_BOTTOM, 'bottom')}
+        >
+          Peel bottom
+        </button>
+        <button type="button" style={wardrobeBtn} onClick={onReset}>
+          Reset starter loadout
+        </button>
+      </div>
+
+      {note ? (
+        <p
+          role="status"
+          data-testid="wardrobe-note"
+          style={{
+            margin: '0 0 14px',
+            fontSize: 13,
+            color: '#c4b5fd',
+            lineHeight: 1.4,
+          }}
+        >
+          {note}
+        </p>
+      ) : null}
 
       <div
         style={{
@@ -498,6 +804,57 @@ function EquipmentLoadoutTable({ unit }: { unit: DetailedUnit }) {
       {resolvedRows.length === 0 && (
         <p style={{ opacity: 0.7 }}>No equipped items resolved for this character.</p>
       )}
+
+      <div style={{ marginBottom: 20 }}>
+        <h3 style={{ margin: '0 0 10px', fontSize: 15, opacity: 0.9 }}>
+          Owned · unequipped ({bag.length})
+        </h3>
+        {bag.length === 0 ? (
+          <p style={{ margin: 0, fontSize: 13, opacity: 0.6 }}>
+            Nothing in the bank off-body. Unequip a piece to stash it here.
+          </p>
+        ) : (
+          <ul style={{ margin: 0, padding: 0, listStyle: 'none' }}>
+            {bag.map((item) => (
+              <li
+                key={item.id}
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  gap: 12,
+                  marginBottom: 8,
+                  padding: '10px 12px',
+                  borderRadius: 8,
+                  background: 'rgba(255,255,255,0.04)',
+                  border: '1px solid rgba(255,255,255,0.1)',
+                  fontSize: 13,
+                }}
+              >
+                <span>
+                  <span style={{ opacity: 0.55 }}>
+                    {formatEquipmentSlotLabel(item.slot)}
+                  </span>
+                  {' · '}
+                  <strong>{item.name}</strong>
+                  <span style={{ opacity: 0.55 }}>
+                    {' '}
+                    · {item.itemType}
+                    {item.weaponType ? ` / ${item.weaponType}` : ''}
+                  </span>
+                </span>
+                <button
+                  type="button"
+                  style={wardrobeBtn}
+                  onClick={() => onEquip(item.id)}
+                >
+                  Equip
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
 
       <details style={{ marginTop: 8, opacity: 0.65, fontSize: 12 }}>
         <summary style={{ cursor: 'pointer' }}>Empty slots ({emptySlots.length})</summary>
@@ -679,7 +1036,32 @@ function CharacterPicker({ currentId }: { currentId?: string }) {
 function CharacterDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const unit = id ? getDetailedCharacter(id) : undefined;
+  const [unit, setUnit] = useState<DetailedUnit | null>(() =>
+    id ? cloneWardrobe(id)?.unit ?? null : null
+  );
+  const [itemsById, setItemsById] = useState<Record<string, Item>>(() =>
+    id ? cloneWardrobe(id)?.itemsById ?? {} : {}
+  );
+  const [gearNote, setGearNote] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!id) {
+      setUnit(null);
+      setItemsById({});
+      setGearNote(null);
+      return;
+    }
+    const cloned = cloneWardrobe(id);
+    if (!cloned) {
+      setUnit(null);
+      setItemsById({});
+      setGearNote(null);
+      return;
+    }
+    setUnit(cloned.unit);
+    setItemsById(cloned.itemsById);
+    setGearNote(null);
+  }, [id]);
 
   const pageStyle: CSSProperties = {
     minHeight: '100vh',
@@ -688,6 +1070,138 @@ function CharacterDetail() {
     background: 'linear-gradient(180deg, #12081f 0%, #0a0a12 40%, #0a0a12 100%)',
     color: '#f0f0f5',
     boxSizing: 'border-box',
+  };
+
+  const syncGear = (nextUnit: DetailedUnit, nextItems: Record<string, Item>) => {
+    setUnit({
+      ...nextUnit,
+      equipment: { ...nextUnit.equipment },
+    });
+    setItemsById({ ...nextItems });
+  };
+
+  const onUnequip = (slot: ItemSlot) => {
+    if (!unit) return;
+    const r = unequipSlot({ unit, itemsById }, slot);
+    if (!r.ok) {
+      setGearNote(r.message);
+      return;
+    }
+    syncGear(unit, itemsById);
+    setGearNote(`Unequipped ${r.item.name} (${formatEquipmentSlotLabel(slot)}).`);
+  };
+
+  const onEquip = (itemId: string) => {
+    if (!unit) return;
+    const r = equipItem({ unit, itemsById }, itemId);
+    if (!r.ok) {
+      setGearNote(r.message);
+      return;
+    }
+    syncGear(unit, itemsById);
+    const prev = r.previous ? ` (replaced ${r.previous.name})` : '';
+    setGearNote(
+      `Equipped ${r.item.name} → ${formatEquipmentSlotLabel(r.item.equippedSlot as ItemSlot)}${prev}.`
+    );
+  };
+
+  const onDiscard = (slot: ItemSlot) => {
+    if (!unit) return;
+    const r = discardEquipped({ unit, itemsById }, slot);
+    if (!r.ok) {
+      setGearNote(r.message);
+      return;
+    }
+    syncGear(unit, itemsById);
+    setGearNote(`Discarded ${r.item.name} (${formatEquipmentSlotLabel(slot)}).`);
+  };
+
+  const onPeel = (slots: ItemSlot[], label: string) => {
+    if (!unit) return;
+    const { unequipped } = unequipSlots({ unit, itemsById }, slots);
+    syncGear(unit, itemsById);
+    if (unequipped.length === 0) {
+      setGearNote(`Peel ${label}: nothing worn in those slots.`);
+      return;
+    }
+    setGearNote(
+      `Peeled ${label}: ${unequipped.map((i) => i.name).join(', ')}.`
+    );
+  };
+
+  const onReset = () => {
+    if (!id) return;
+    const cloned = cloneWardrobe(id);
+    if (!cloned) return;
+    setUnit(cloned.unit);
+    setItemsById(cloned.itemsById);
+    setGearNote('Reset to starter loadout.');
+  };
+
+  const mutatePartCare = (
+    part: BodyPartId,
+    kind: 'bandage' | 'vulnerary'
+  ) => {
+    if (!unit) return;
+    const nextUnit = structuredClone(unit) as DetailedUnit;
+    const nextItems = { ...itemsById };
+    const r =
+      kind === 'bandage'
+        ? useBandageOnPart(
+            nextUnit.combatStats.itemizedHealth,
+            part,
+            nextItems,
+            { allowLabFree: true }
+          )
+        : useVulneraryOnPart(
+            nextUnit.combatStats.itemizedHealth,
+            part,
+            nextItems,
+            { allowLabFree: true }
+          );
+    if (!r.ok) {
+      setGearNote(r.message);
+      return;
+    }
+    setUnit(nextUnit);
+    setItemsById(nextItems);
+    const label = formatBodyPartLabel(part);
+    const spent = r.consumedId ? ' · consumed' : r.labFree ? ' · lab free' : '';
+    const already = r.already ? ' (already applied)' : '';
+    setGearNote(
+      `${kind === 'bandage' ? 'Bandage' : 'Vulnerary'} → ${label}${already}${spent}.`
+    );
+  };
+
+  const onLabInjure = (part: BodyPartId) => {
+    if (!unit) return;
+    const nextUnit = structuredClone(unit) as DetailedUnit;
+    const s = nextUnit.combatStats.itemizedHealth[part];
+    s.health = Math.max(0, Math.round((s.health - 0.35) * 1000) / 1000);
+    // Lab default: mostly external cut; slight internal for dual-track visibility.
+    const chip = 0.35;
+    s.bleed = Math.max(s.bleed, Math.min(1, chip * 0.85));
+    s.internalBleed = Math.max(s.internalBleed, Math.min(1, chip * 0.15));
+    setUnit(nextUnit);
+    setGearNote(
+      `Lab injure ${formatBodyPartLabel(part)} → health ${(s.health * 100).toFixed(0)}% · bleed ${(s.bleed * 100).toFixed(0)}% / i-bleed ${(s.internalBleed * 100).toFixed(0)}%.`
+    );
+  };
+
+  const onLabTrauma = (part: BodyPartId, level: TraumaLevel) => {
+    if (!unit) return;
+    const nextUnit = structuredClone(unit) as DetailedUnit;
+    if (level === 'none') {
+      clearTraumaFlag(nextUnit.combatStats.itemizedHealth, part);
+    } else {
+      setTraumaFlag(nextUnit.combatStats.itemizedHealth, part, level);
+    }
+    setUnit(nextUnit);
+    setGearNote(
+      level === 'none'
+        ? `Cleared trauma on ${formatBodyPartLabel(part)}.`
+        : `Set ${level} on ${formatBodyPartLabel(part)} (health unchanged).`
+    );
   };
 
   if (!unit) {
@@ -722,7 +1236,7 @@ function CharacterDetail() {
 
       <header style={{ marginBottom: 28 }}>
         <p style={{ margin: '0 0 6px', opacity: 0.65, fontSize: 13, letterSpacing: 0.5 }}>
-          DETAILED MODEL · COMBAT FOCUS
+          DETAILED MODEL · STATUS / WARDROBE
         </p>
         <h1 style={{ margin: '0 0 8px', fontSize: '2rem' }}>{unit.name}</h1>
         <p style={{ margin: 0, opacity: 0.85 }}>
@@ -761,16 +1275,37 @@ function CharacterDetail() {
 
       <section style={{ marginBottom: 36 }}>
         <h2 style={{ fontSize: '1.25rem', borderBottom: '1px solid #444', paddingBottom: 8 }}>
-          Equipment
+          Wardrobe
         </h2>
-        <EquipmentLoadoutTable unit={unit} />
+        <WardrobePanel
+          unit={unit}
+          itemsById={itemsById}
+          note={gearNote}
+          onUnequip={onUnequip}
+          onEquip={onEquip}
+          onDiscard={onDiscard}
+          onPeel={onPeel}
+          onReset={onReset}
+        />
       </section>
 
       <section>
         <h2 style={{ fontSize: '1.25rem', borderBottom: '1px solid #444', paddingBottom: 8 }}>
           Itemized health
         </h2>
-        <ItemizedHealthTable unit={unit} />
+        <ItemizedHealthTable
+          unit={unit}
+          bandageCount={Object.values(itemsById).filter(
+            (i) => i.templateId === BANDAGE_TEMPLATE_ID
+          ).length}
+          vulneraryCount={Object.values(itemsById).filter(
+            (i) => i.templateId === VULNERARY_TEMPLATE_ID
+          ).length}
+          onBandage={(part) => mutatePartCare(part, 'bandage')}
+          onVulnerary={(part) => mutatePartCare(part, 'vulnerary')}
+          onLabInjure={onLabInjure}
+          onLabTrauma={onLabTrauma}
+        />
       </section>
     </div>
   );

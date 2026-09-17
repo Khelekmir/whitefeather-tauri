@@ -4,11 +4,13 @@ import type { BaseCombatStats, ItemizedHealth, WeaponSkill } from '../../types/c
 import type { Item } from '../../types/items';
 import { calcItemWeight } from '../items/resolveItem';
 import { getItemTemplate } from '../../data/catalog/itemTemplates';
+import { COMBAT_TUNING } from './combatTuning';
 import {
   calcHealthPenaltySimple,
   calcStaminaPenalty,
   calcWeightPenalty,
 } from './penalties';
+import { calcTraumaPenalties } from './traumaFlags';
 
 /** Optional blood remaining fraction (1 = full). Applied as stamina-first penalty. */
 export type BloodFractionOpts = {
@@ -28,21 +30,58 @@ export interface AttackValueResult {
   weaponWeight: number;
   weaponHardness: number;
   weaponSkill: number;
+  /** True when equipped mainhand was ignored (broken → punch fallback). */
+  weaponBroken: boolean;
+  /** Attack mult from durability while intact (1 if punch / broken fallback). */
+  durabilityAttackMult: number;
+}
+
+/** durability / maxDurability for an item (0 if missing). */
+export function weaponDurabilityRatio(item: Item | null | undefined): number {
+  if (!item) return 1;
+  const max = Math.max(0.001, item.maxDurability);
+  return Math.max(0, item.durability / max);
+}
+
+export function isWeaponBroken(item: Item | null | undefined): boolean {
+  if (!item || item.itemType !== 'weapon') return false;
+  return weaponDurabilityRatio(item) <= COMBAT_TUNING.weaponDurabilityAttack.brokenRatio;
+}
+
+/**
+ * Intact weapons: linear curve through (referenceRatio, referenceMult) → (1, 1).
+ * Default: 5% durability → 80% attack; full → 100%.
+ * At/below broken ratio callers should use punch fallback instead.
+ */
+export function weaponDurabilityAttackMult(ratio: number): number {
+  const { brokenRatio, referenceRatio, referenceMult } =
+    COMBAT_TUNING.weaponDurabilityAttack;
+  if (ratio <= brokenRatio) return 0;
+  if (ratio >= 1) return 1;
+  const span = Math.max(1e-6, 1 - referenceRatio);
+  const mult =
+    referenceMult + ((1 - referenceMult) * (ratio - referenceRatio)) / span;
+  // Above break, never go below a hair under referenceMult when extrapolating
+  // slightly below the anchor (e.g. 3% wear).
+  return Math.max(0, Math.min(1, mult));
 }
 
 /**
  * Port of AttackTotals getAttackValue / getAttackBaseForDurabilityCalcs
- * for a single main-hand (or punch if empty).
+ * for a single main-hand (or punch if empty / broken).
  */
 export function calcMainhandAttackValue(
   base: BaseCombatStats,
   itemizedHealth: ItemizedHealth,
   weaponSkill: WeaponSkill,
-  mainhand: Item | null,
+  mainhandIn: Item | null,
   offhandIsShield: boolean,
   offhandWeight: number,
   blood?: BloodFractionOpts
 ): AttackValueResult {
+  const broken = isWeaponBroken(mainhandIn);
+  // Broken blade → unequipped/punch for power (still equipped for inventory/UI).
+  const mainhand = broken ? null : mainhandIn;
   const template = mainhand ? getItemTemplate(mainhand.templateId) : null;
   const weaponType =
     mainhand?.weaponType ??
@@ -58,8 +97,10 @@ export function calcMainhandAttackValue(
     (weaponSkill as Record<string, number>)[weaponType] ??
     weaponSkill.unequipped ??
     1;
-  const durabilityRatio = mainhand
-    ? Math.max(0.05, mainhand.durability / Math.max(0.001, mainhand.maxDurability))
+
+  const ratio = mainhandIn ? weaponDurabilityRatio(mainhandIn) : 1;
+  const durabilityAttackMult = mainhand
+    ? weaponDurabilityAttackMult(ratio)
     : 1;
 
   const noOffhand = !offhandIsShield && offhandWeight <= 0;
@@ -91,6 +132,7 @@ export function calcMainhandAttackValue(
     (blood?.bloodStaminaFactor ?? 1);
   const bloodAttack = blood?.bloodAttackFactor ?? 1;
 
+  const trauma = calcTraumaPenalties(itemizedHealth);
   const attackValue =
     adjusted *
     weightPenalty *
@@ -99,7 +141,9 @@ export function calcMainhandAttackValue(
     bloodAttack *
     material.strength *
     typeInfo.powerMultiplier *
-    Math.sqrt(durabilityRatio);
+    durabilityAttackMult *
+    trauma.attackMult *
+    trauma.globalCombatMult;
 
   return {
     attackValue,
@@ -109,5 +153,7 @@ export function calcMainhandAttackValue(
     weaponWeight: weight,
     weaponHardness: material.durability,
     weaponSkill: skillRank,
+    weaponBroken: broken,
+    durabilityAttackMult,
   };
 }

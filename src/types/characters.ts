@@ -190,7 +190,11 @@ export interface BodyPartHealth {
   bleed: number;
   /** Internal bleed severity relative to this area's max bleed rate */
   internalBleed: number;
-  bruise: boolean;
+  /**
+   * Contusion severity 0–1 (blunt / internal bleed residue).
+   * Fades slowly; lowers lewd preferredIntensity on mapped parts.
+   */
+  bruise: number;
   sprain: boolean;
   fracture: boolean;
   broken: boolean;
@@ -318,6 +322,16 @@ export interface LewdStatic {
     oralReceiveFemale: LewdExperience;
   };
   submissive: boolean;
+  /**
+   * How much nociception they can take before physical discomfort spikes (0–10).
+   * 5 = average; higher = sting lands softer on the body meter.
+   */
+  painTolerance: number;
+  /**
+   * How readily good-bond pain reads as wanted rather than scary (0–10).
+   * High appetite + warm bond → little/no psych discomfort from spank/bite.
+   */
+  painAppetite: number;
   /**
    * Ilian Whitewing culture — sapphic bonding is normative (mentor/mentee etc.).
    * Counts as native attraction toward women for Desire gating.
@@ -487,7 +501,7 @@ export function createDefaultBodyPartHealth(
     health: 1,
     bleed: 0,
     internalBleed: 0,
-    bruise: false,
+    bruise: 0,
     sprain: false,
     fracture: false,
     broken: false,
@@ -682,6 +696,8 @@ export function createDefaultLewdStats(options?: {
         oralReceiveFemale: createDefaultLewdExperience(),
       },
       submissive: false,
+      painTolerance: 5,
+      painAppetite: 3,
       whitewing: false,
       whitefeather: false,
       attractedToBoys: true,

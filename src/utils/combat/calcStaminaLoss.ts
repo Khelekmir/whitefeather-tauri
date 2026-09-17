@@ -5,6 +5,7 @@ import { getItemTemplate } from '../../data/catalog/itemTemplates';
 import { calcItemWeight } from '../items/resolveItem';
 import { isSoftMaterial, COMBAT_TUNING } from './combatTuning';
 import { roundToThousandths } from './penalties';
+import { calcTraumaPenalties } from './traumaFlags';
 
 const S = COMBAT_TUNING.stamina;
 
@@ -51,7 +52,13 @@ export function calcAttackerSwingStamina(input: {
 
   const twoHandTax = twoHanding ? S.attackTwoHandMult : 1;
 
-  const loss = S.attackBasic * gearBurden * oversizeTax * twoHandTax;
+  const trauma = calcTraumaPenalties(attacker.combatStats.itemizedHealth);
+  const loss =
+    S.attackBasic *
+    gearBurden *
+    oversizeTax *
+    twoHandTax *
+    trauma.staminaDrainMult;
   return roundToThousandths(Math.max(S.attackMin, loss));
 }
 
@@ -90,27 +97,57 @@ export function calcDefenderHitStamina(input: {
         ? S.takeHitSoftShockMult
         : S.takeHitHardShockMult;
 
+  const trauma = calcTraumaPenalties(defender.combatStats.itemizedHealth);
   const loss =
-    S.takeHitBasic * conRatio * partShock * forceShock * woundShock * surfaceMult;
+    S.takeHitBasic *
+    conRatio *
+    partShock *
+    forceShock *
+    woundShock *
+    surfaceMult *
+    trauma.staminaDrainMult;
 
   return roundToThousandths(Math.max(S.takeHitMin, loss));
 }
 
-/** Future QTE stubs — ready for defensive phase inputs. */
-export function calcDodgeStamina(quality: 'precise' | 'sloppy'): number {
-  return quality === 'precise' ? S.dodgePrecise : S.dodgeSloppy;
+/** Successful shield block — old attackBlocked spirit. */
+export function calcBlockStamina(input: {
+  attackerCon: number;
+  defenderCon: number;
+  /** Chest-broken breathing tax (default 1). */
+  staminaDrainMult?: number;
+}): number {
+  const atk = Math.max(1, input.attackerCon);
+  const def = Math.max(1, input.defenderCon);
+  const conRatio = Math.sqrt(atk / def);
+  const loss =
+    S.blockBasic *
+    (1 + (conRatio - 1) * S.blockConDiffScale) *
+    (input.staminaDrainMult ?? 1);
+  return roundToThousandths(Math.max(S.blockMin, loss));
+}
+
+export function calcDodgeStamina(
+  quality: 'precise' | 'sloppy',
+  staminaDrainMult = 1
+): number {
+  const base = quality === 'precise' ? S.dodgePrecise : S.dodgeSloppy;
+  return roundToThousandths(base * staminaDrainMult);
 }
 
 export function calcParryStamina(input: {
   quality: 'clean' | 'edge';
   attackerCon: number;
   defenderCon: number;
+  staminaDrainMult?: number;
 }): number {
   const base = input.quality === 'clean' ? S.parryClean : S.parryEdge;
   const ratio = Math.sqrt(
     Math.max(1, input.attackerCon) / Math.max(1, input.defenderCon)
   );
   return roundToThousandths(
-    base * Math.max(1, ratio * S.parryConDiffScale)
+    base *
+      Math.max(1, ratio * S.parryConDiffScale) *
+      (input.staminaDrainMult ?? 1)
   );
 }

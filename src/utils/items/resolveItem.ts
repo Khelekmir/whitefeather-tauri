@@ -5,6 +5,7 @@ import {
   DEFAULT_SLOT_COVERAGE,
   FOOTWEAR_LENGTH_COVERAGE,
   GARMENT_LENGTH_COVERAGE,
+  GARMENT_SLEEVE_COVERAGE,
   HEADWEAR_COVERAGE,
   type CoverageMap,
 } from '../../data/combat/coveragePresets';
@@ -34,7 +35,11 @@ export interface ResolvedItem {
 /**
  * Effective coverage for an armor template:
  * explicit coverage → underwearStyle → undershirtStyle → headwearStyle →
- * garmentLength → footwearLength → chest sizePreset → slot default.
+ * garmentLength (+ optional sleeveStyle merge) → footwearLength →
+ * chest sizePreset → slot default.
+ *
+ * Hem (`garmentLength`) and sleeves (`sleeveStyle`) are orthogonal: e.g.
+ * Serra long + none, Amberyl tunic + long, Florina short + short.
  */
 export function getTemplateCoverage(template: ItemTemplate): CoverageMap {
   if (template.coverage) return template.coverage;
@@ -49,8 +54,17 @@ export function getTemplateCoverage(template: ItemTemplate): CoverageMap {
   if (template.headwearStyle) {
     return HEADWEAR_COVERAGE[template.headwearStyle];
   }
-  if (template.garmentLength) {
-    return GARMENT_LENGTH_COVERAGE[template.garmentLength];
+  if (template.garmentLength || template.sleeveStyle) {
+    const hem = template.garmentLength
+      ? GARMENT_LENGTH_COVERAGE[template.garmentLength]
+      : template.slot === 'shirt'
+        ? GARMENT_LENGTH_COVERAGE.tunic
+        : {};
+    const sleeves =
+      template.sleeveStyle != null
+        ? GARMENT_SLEEVE_COVERAGE[template.sleeveStyle]
+        : {};
+    return { ...hem, ...sleeves };
   }
   if (template.footwearLength) {
     return FOOTWEAR_LENGTH_COVERAGE[template.footwearLength];

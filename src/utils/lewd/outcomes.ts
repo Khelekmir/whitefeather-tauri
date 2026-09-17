@@ -7,6 +7,7 @@ export type LewdOutcomeBand =
   | 'overstep'
   | 'violation'
   | 'unready'
+  | 'clothed'
   | 'climax'
   | 'ruined';
 
@@ -16,11 +17,13 @@ export function bandOutcome(
     intimacyBlocked?: boolean;
     arousalHardBlocked?: boolean;
     arousalSoftUnready?: boolean;
+    clothingBlocked?: boolean;
     climaxed?: boolean;
     ruined?: boolean;
   }
 ): LewdOutcomeBand {
   if (opts?.intimacyBlocked) return 'violation';
+  if (opts?.clothingBlocked) return 'clothed';
   if (opts?.arousalHardBlocked) return 'unready';
   if (opts?.ruined) return 'ruined';
   if (opts?.climaxed) return 'climax';
@@ -47,9 +50,11 @@ export function outcomeLabel(band: LewdOutcomeBand): string {
       return 'Violation — intimacy/trust gate failed';
     case 'unready':
       return 'Unready — not aroused enough for that depth of intimacy';
+    case 'clothed':
+      return 'Clothed — clothing/armor blocks that contact';
     case 'climax':
       return 'Climax — edge released';
     case 'ruined':
-      return 'Ruined — discomfort overwhelmed the encounter';
+      return 'Ruined — body or mind discomfort overwhelmed the encounter';
   }
 }

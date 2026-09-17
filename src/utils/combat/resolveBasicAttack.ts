@@ -13,20 +13,31 @@ import {
   type StanceMatchupResult,
 } from './calcStanceMatchup';
 import type { Item } from '../../types/items';
+import { applyArmorPanelHitWear } from '../items/panelDurability';
 import { getProtectingArmor, calcItemWeight } from '../items/resolveItem';
 import { calcMainhandAttackValue } from './calcAttackValue';
 import { calcCombatDamage } from './calcCombatDamage';
 import {
   calcArmorDurabilityLoss,
+  calcShieldDurabilityLoss,
   calcWeaponDurabilityLoss,
   classifyWeaponWearTarget,
 } from './calcDurabilityLoss';
+import { calcBlockStats } from './calcBlockStats';
 import {
   calcAttackerSwingStamina,
+  calcBlockStamina,
   calcDefenderHitStamina,
   classifyDefenderSurface,
 } from './calcStaminaLoss';
 import { getItemTemplate } from '../../data/catalog/itemTemplates';
+import { getMaterial } from '../../data/combat/materials';
+import { bruiseFlavor } from './bruise';
+import {
+  ATTACK_MODE_LABELS,
+  resolveBleedSplitForAttack,
+} from './damageTypes';
+import { calcTraumaPenalties } from './traumaFlags';
 import { COMBAT_TUNING, isOutfitSlot, isSoftMaterial } from './combatTuning';
 import {
   calcBloodCombatPenalties,
@@ -54,14 +65,23 @@ export interface BasicAttackResult {
   armorLosses: {
     slot: string;
     name: string;
+    /** Coverage-scaled chip applied to the hit panel. */
     loss: number;
+    /** Derived whole-item durability after the hit. */
     remaining: number;
+    /** Remaining integrity of the struck panel. */
+    panelRemaining: number;
+    bodypart: BodyPartId;
+    coverageScale: number;
     softOutfit: boolean;
+    /** Soft outfit: struck panel went to 0 this hit. */
     ruined: boolean;
   }[];
-  /** Soft outfit pieces that hit 0 durability this strike (erotic battlefield beat). */
+  /** Soft outfit pieces whose hit-location panel shredded this strike. */
   outfitsRuined: string[];
   weaponLoss: number;
+  shieldLoss: number;
+  blocked: boolean;
   attackerStaminaLoss: number;
   defenderStaminaLoss: number;
   /** Mutated copies — assign back into Battleground state */
@@ -83,6 +103,15 @@ export interface ResolveBasicAttackOptions {
    * Misses are handled outside this function.
    */
   critMultiplier?: number;
+  /** Injected RNG (block roll); default Math.random. */
+  rng?: () => number;
+  /**
+   * External vs internal bleed split for this hit.
+   * If omitted, derived from attackMode / weapon default.
+   */
+  bleedSplit?: import('./bleedSplit').BleedSplit;
+  /** Slash / thrust / blunt / unarmed — drives bleed split when bleedSplit omitted. */
+  attackMode?: import('./damageTypes').AttackMode;
 }
 
 /**
@@ -160,22 +189,53 @@ export function resolveBasicAttack(
       critMultiplier > 1 ? ` [CRIT ×${critMultiplier}]` : ''
     }.`
   );
+  if (atk.weaponBroken && mainhand) {
+    log.push(
+      `${mainhand.name} is broken (dur ≤ ${(COMBAT_TUNING.weaponDurabilityAttack.brokenRatio * 100).toFixed(0)}%) — swing collapses to unequipped/punch.`
+    );
+  } else if (mainhand && atk.durabilityAttackMult < 0.999) {
+    log.push(
+      `Weapon wear flavor ×${atk.durabilityAttackMult.toFixed(3)} (intact; soft until broken).`
+    );
+  }
+  const { mode: attackMode, split: bleedSplit } = resolveBleedSplitForAttack(
+    atk.weaponType,
+    { attackMode: opts.attackMode, bleedSplit: opts.bleedSplit }
+  );
   log.push(
-    `Attack value ${roundToThousandths(atk.attackValue)} with ${atk.weaponType} (${atk.damageType})${
+    `Attack value ${roundToThousandths(atk.attackValue)} with ${atk.weaponType} · ${ATTACK_MODE_LABELS[attackMode].toLowerCase()} (${(bleedSplit.external * 100).toFixed(0)}% ext / ${(bleedSplit.internal * 100).toFixed(0)}% int)${
       critMultiplier > 1 ? ` (crit applied)` : ''
     }.`
   );
 
+  const blockStats = calcBlockStats(defender.unit, defender.itemsById);
   const dmg = calcCombatDamage(
     atk.attackValue,
     defBase.health,
     bodypart,
     defender.unit.equipment,
-    defender.itemsById
+    defender.itemsById,
+    {
+      blockChance: blockStats.chance,
+      blockValue: blockStats.value,
+      rng: opts.rng,
+    }
   );
 
+  if (dmg.blocked) {
+    log.push(
+      `${defender.unit.name} BLOCKS with shield (p=${blockStats.chance.toFixed(2)}, roll=${dmg.blockRoll.toFixed(2)}, absorb ${blockStats.value.toFixed(2)}) — through-block ${dmg.damageThroughBlock.toFixed(2)}; armor mit skipped.`
+    );
+  } else if (blockStats.hasShield) {
+    log.push(
+      `${defender.unit.name} fails to block (p=${blockStats.chance.toFixed(2)}, roll=${dmg.blockRoll.toFixed(2)}).`
+    );
+  }
+
   log.push(
-    `Armor mitigation ${dmg.totalMitigation} → multiplier ${dmg.mitigationMultiplier}; damage to part ${(dmg.damagePercent * 100).toFixed(1)}%.`
+    dmg.blocked
+      ? `Blocked residual → part damage ${(dmg.damagePercent * 100).toFixed(1)}%.`
+      : `Armor mitigation ${dmg.totalMitigation} → multiplier ${dmg.mitigationMultiplier}; damage to part ${(dmg.damagePercent * 100).toFixed(1)}%.`
   );
 
   // —— Apply itemized injury; pool HP is compiled from weighted parts ——
@@ -183,7 +243,24 @@ export function resolveBasicAttack(
   const prevPart = part.health;
   const prevPool = defBase.healthCurrent;
   part.health = Math.max(0, roundToThousandths(part.health - dmg.damagePercent));
-  refreshBleedAfterInjury(defender.unit.combatStats.itemizedHealth, bodypart);
+  refreshBleedAfterInjury(defender.unit.combatStats.itemizedHealth, bodypart, {
+    damagePercent: dmg.damagePercent,
+    split: bleedSplit,
+  });
+  if (dmg.damagePercent > 0) {
+    const partBleed = defender.unit.combatStats.itemizedHealth[bodypart];
+    if (partBleed.bleed > 0 || partBleed.internalBleed > 0) {
+      log.push(
+        `Bleed channels on ${formatBodyPartLabel(bodypart)}: external ${(partBleed.bleed * 100).toFixed(0)}% · internal ${(partBleed.internalBleed * 100).toFixed(0)}%.`
+      );
+    }
+    if ((partBleed.bruise ?? 0) > COMBAT_TUNING.bruise.minVisible) {
+      const fl = bruiseFlavor(partBleed.bruise);
+      log.push(
+        `${formatBodyPartLabel(bodypart)}: ${fl.label} (${(partBleed.bruise * 100).toFixed(0)}%).`
+      );
+    }
+  }
 
   const blood = getBloodStatus(defender.unit);
   const bloodPen = calcBloodCombatPenalties(blood.remainingFraction);
@@ -208,7 +285,7 @@ export function resolveBasicAttack(
     );
   }
 
-  // —— Gear pressure: soft outfit wrecks hard; plate paced + metal clash ——
+  // —— Gear pressure: on block, chip the shield; else armor panels ——
   const layers = getProtectingArmor(
     bodypart,
     defender.unit.equipment,
@@ -216,60 +293,100 @@ export function resolveBasicAttack(
   );
   const armorLosses: BasicAttackResult['armorLosses'] = [];
   const outfitsRuined: string[] = [];
+  let shieldLoss = 0;
 
-  layers.forEach((layer, index) => {
-    const item = defender.itemsById[layer.instance.id];
-    if (!item || item.itemType !== 'armor') return;
-
-    const softOutfit =
-      isSoftMaterial(item.material) && isOutfitSlot(item.slot);
-    const wasIntact = item.durability > 0;
-
-    const loss = calcArmorDurabilityLoss(item, {
-      attackerAtkValue: atk.attackValue,
-      attackerWeaponHardness: atk.weaponHardness,
-      layerIndex: index,
-      isOutermost: index === 0,
-    });
-    if (loss <= 0) return;
-
-    item.durability = Math.max(0, roundToThousandths(item.durability - loss));
-    const ruined = wasIntact && item.durability <= 0 && softOutfit;
-    if (ruined) outfitsRuined.push(item.name);
-
-    armorLosses.push({
-      slot: item.slot,
-      name: item.name,
-      loss,
-      remaining: item.durability,
-      softOutfit,
-      ruined,
-    });
-
-    if (softOutfit) {
-      log.push(
-        ruined
-          ? `${defender.unit.name}'s ${item.name} is ruined — fabric gives way (${item.slot}).`
-          : `${defender.unit.name}'s ${item.name} is torn (−${loss} → ${item.durability.toFixed(3)}).`
+  if (dmg.blocked) {
+    const shieldId = defender.unit.equipment.offhand;
+    const shield = shieldId ? defender.itemsById[shieldId] : null;
+    if (shield && shield.itemType === 'shield') {
+      shieldLoss = calcShieldDurabilityLoss(
+        shield,
+        atk.attackBase,
+        atk.weaponHardness
       );
-    } else {
+      if (shieldLoss > 0) {
+        shield.durability = Math.max(
+          0,
+          roundToThousandths(shield.durability - shieldLoss)
+        );
+        log.push(
+          `${shield.name} (block) durability −${shieldLoss} → ${shield.durability.toFixed(3)}.`
+        );
+      }
+    }
+  } else {
+    layers.forEach((layer, index) => {
+      const item = defender.itemsById[layer.instance.id];
+      if (!item || item.itemType !== 'armor') return;
+
+      const softOutfit =
+        isSoftMaterial(item.material) && isOutfitSlot(item.slot);
+
+      const baseLoss = calcArmorDurabilityLoss(item, {
+        attackerAtkValue: atk.attackValue,
+        attackerWeaponHardness: atk.weaponHardness,
+        layerIndex: index,
+        isOutermost: index === 0,
+      });
+      if (baseLoss <= 0) return;
+
+      const wear = applyArmorPanelHitWear(
+        item,
+        layer.coverage,
+        bodypart,
+        baseLoss
+      );
+      if (wear.panelLoss <= 0 && wear.coverageScale <= 0) return;
+
+      const ruined = softOutfit && wear.panelRuined;
+      if (ruined) outfitsRuined.push(item.name);
+
+      armorLosses.push({
+        slot: item.slot,
+        name: item.name,
+        loss: wear.panelLoss,
+        remaining: wear.derivedDurability,
+        panelRemaining: wear.panelAfter,
+        bodypart,
+        coverageScale: wear.coverageScale,
+        softOutfit,
+        ruined,
+      });
+
+      const partLabel = formatBodyPartLabel(bodypart);
+      if (softOutfit) {
+        log.push(
+          ruined
+            ? `${defender.unit.name}'s ${item.name} is ruined at ${partLabel} — fabric gives way (${item.slot}).`
+            : `${defender.unit.name}'s ${item.name} tears at ${partLabel} (−${wear.panelLoss.toFixed(3)} panel → ${wear.panelAfter.toFixed(3)}; piece ${wear.derivedDurability.toFixed(3)}).`
+        );
+      } else {
+        log.push(
+          `${item.name} (${item.slot}) ${partLabel} panel −${wear.panelLoss.toFixed(3)} → ${wear.panelAfter.toFixed(3)} (piece ${wear.derivedDurability.toFixed(3)}; cov ×${wear.coverageScale.toFixed(2)}).`
+        );
+      }
+    });
+
+    if (layers.length === 0) {
       log.push(
-        `${item.name} (${item.slot}) durability −${loss} → ${item.durability.toFixed(3)}.`
+        `${defender.unit.name} has no armor on that zone — the blow lands on bare flesh.`
       );
     }
-  });
-
-  if (layers.length === 0) {
-    log.push(
-      `${defender.unit.name} has no armor on that zone — the blow lands on bare flesh.`
-    );
   }
 
-  // —— Weapon durability (costly vs plate; cheap vs cloth/flesh) ——
+  // —— Weapon durability (vs shield when blocked; else outer armor/flesh) ——
   let weaponLoss = 0;
   if (mainhand) {
-    const outerMat = layers[0]?.instance.material ?? null;
-    const defendingHardness = layers[0]?.material.durability ?? 1;
+    let outerMat = layers[0]?.instance.material ?? null;
+    let defendingHardness = layers[0]?.material.durability ?? 1;
+    if (dmg.blocked) {
+      const shieldId = defender.unit.equipment.offhand;
+      const shield = shieldId ? defender.itemsById[shieldId] : null;
+      if (shield) {
+        outerMat = shield.material;
+        defendingHardness = getMaterial(shield.material).durability;
+      }
+    }
     const wearTarget = classifyWeaponWearTarget(outerMat);
     weaponLoss = calcWeaponDurabilityLoss(
       mainhand,
@@ -302,15 +419,47 @@ export function resolveBasicAttack(
     offhandWeight,
     twoHanding,
   });
-  const surface = classifyDefenderSurface(layers[0]?.instance.material);
-  const defenderStaminaLoss = calcDefenderHitStamina({
-    attacker: attacker.unit,
-    defender: defender.unit,
-    bodypart,
-    attackValue: atk.attackValue,
-    damagePercent: dmg.damagePercent,
-    surface,
-  });
+  const surface = dmg.blocked
+    ? classifyDefenderSurface(
+        defender.unit.equipment.offhand
+          ? defender.itemsById[defender.unit.equipment.offhand]?.material
+          : null
+      )
+    : classifyDefenderSurface(layers[0]?.instance.material);
+  let defenderStaminaLoss = 0;
+  if (dmg.blocked) {
+    const traumaStam = calcTraumaPenalties(
+      defender.unit.combatStats.itemizedHealth
+    ).staminaDrainMult;
+    defenderStaminaLoss = calcBlockStamina({
+      attackerCon: atkBase.constitution,
+      defenderCon: defBase.constitution,
+      staminaDrainMult: traumaStam,
+    });
+    if (dmg.damagePercent > 0) {
+      defenderStaminaLoss = roundToThousandths(
+        defenderStaminaLoss +
+          calcDefenderHitStamina({
+            attacker: attacker.unit,
+            defender: defender.unit,
+            bodypart,
+            attackValue: dmg.damageThroughBlock,
+            damagePercent: dmg.damagePercent,
+            surface,
+          }) *
+            0.5
+      );
+    }
+  } else {
+    defenderStaminaLoss = calcDefenderHitStamina({
+      attacker: attacker.unit,
+      defender: defender.unit,
+      bodypart,
+      attackValue: atk.attackValue,
+      damagePercent: dmg.damagePercent,
+      surface,
+    });
+  }
   atkBase.staminaCurrent = Math.max(
     0,
     roundToThousandths(atkBase.staminaCurrent - attackerStaminaLoss)
@@ -320,7 +469,9 @@ export function resolveBasicAttack(
     roundToThousandths(defBase.staminaCurrent - defenderStaminaLoss)
   );
   log.push(
-    `Stamina: ${attacker.unit.name} swing −${attackerStaminaLoss} → ${atkBase.staminaCurrent}; ${defender.unit.name} hit (${surface}, ${formatBodyPartLabel(bodypart)}) −${defenderStaminaLoss} → ${defBase.staminaCurrent}.`
+    `Stamina: ${attacker.unit.name} swing −${attackerStaminaLoss} → ${atkBase.staminaCurrent}; ${defender.unit.name} ${
+      dmg.blocked ? 'block' : 'hit'
+    } (${surface}, ${formatBodyPartLabel(bodypart)}) −${defenderStaminaLoss} → ${defBase.staminaCurrent}.`
   );
 
   // Skill gains on connect — flat additives from COMBAT_TUNING.training
@@ -350,6 +501,8 @@ export function resolveBasicAttack(
     armorLosses,
     outfitsRuined,
     weaponLoss,
+    shieldLoss,
+    blocked: dmg.blocked,
     attackerStaminaLoss,
     defenderStaminaLoss,
     attacker,

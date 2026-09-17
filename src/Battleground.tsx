@@ -12,6 +12,7 @@ import {
   STRIKE_STANCES,
   formatBodyPartLabel,
   formatStanceLabel,
+  type BodyPartId,
   type CombatStance,
   type CoverStanceId,
   type StrikeStanceId,
@@ -34,13 +35,30 @@ import {
   calcPerformanceFromItemized,
   mobilityProblemParts,
 } from './utils/combat/performanceFromItemized';
+import { calcTraumaPenalties } from './utils/combat/traumaFlags';
 import {
   resolveBasicAttack,
   type FighterState,
 } from './utils/combat/resolveBasicAttack';
 import { tickBleed } from './utils/combat/tickBleed';
+import {
+  calcDefenseChancesVsAttacker,
+  type DefenseChances,
+} from './utils/combat/calcDefenseChances';
+import { resolveNpcDefense } from './utils/combat/resolveNpcDefense';
 import { AimTargetPanel, AIM_ZONE_LABELS } from './components/AimTargetPanel';
 import { AttackRhythmQte } from './components/AttackRhythmQte';
+import {
+  canParryWith,
+  scaleDefenseRhythmWindow,
+  type DefenseVerb,
+} from './utils/combat/defenseRhythm';
+import {
+  ATTACK_MODE_LABELS,
+  clampAttackMode,
+  weaponAttackModes,
+  type AttackMode,
+} from './utils/combat/damageTypes';
 import { CombatPosePair } from './components/CombatPosePair';
 import {
   bandDurationsMs,
@@ -51,10 +69,24 @@ import {
 } from './utils/combat/attackRhythm';
 import { calcRhythmCompetence } from './utils/combat/rhythmCompetence';
 import { COMBAT_TUNING } from './utils/combat/combatTuning';
-import { calcAttackerSwingStamina } from './utils/combat/calcStaminaLoss';
+import {
+  calcAttackerSwingStamina,
+  calcDodgeStamina,
+  calcParryStamina,
+} from './utils/combat/calcStaminaLoss';
 import { getItemTemplate } from './data/catalog/itemTemplates';
 import { calcItemWeight } from './utils/items/resolveItem';
+import { discardEquipped } from './utils/items/equipGear';
 import { roundToThousandths } from './utils/combat/penalties';
+import type { ItemSlot } from './types/items';
+import {
+  findOwnedConsumable,
+  listCarePriorityParts,
+  useBandageOnPart,
+  useVulneraryOnPart,
+  BANDAGE_TEMPLATE_ID,
+  VULNERARY_TEMPLATE_ID,
+} from './utils/combat/woundCare';
 
 const DEFAULT_LEFT = 'unit_amberyl';
 const DEFAULT_RIGHT = 'unit_sain';
@@ -64,6 +96,18 @@ type AttackDirection = 'leftToRight' | 'rightToLeft';
 interface PendingRhythmAttack {
   direction: AttackDirection;
   rhythmWindow: RhythmWindow;
+}
+
+/** Player (Fighter A) defense QTE — LMB dodge / RMB parry. */
+interface PendingPlayerDefense {
+  direction: AttackDirection;
+  critMultiplier: number;
+  aim: AttackTargetKey;
+  tag: string;
+  dodgeWindow: RhythmWindow;
+  parryWindow: RhythmWindow;
+  canParry: boolean;
+  attackMode: AttackMode;
 }
 
 function resolveAttackerWeaponType(snap: CombatantSnapshot | null): string {
@@ -216,12 +260,17 @@ function FighterCard({
   selectedId,
   onSelect,
   onStanceChange,
+  onDiscardRuined,
+  defenseChances,
 }: {
   snapshot: CombatantSnapshot | null;
   side: 'left' | 'right';
   selectedId: string;
   onSelect: (id: string) => void;
   onStanceChange: (patch: Partial<CombatStance>) => void;
+  onDiscardRuined?: (slot: ItemSlot) => void;
+  /** Live NPC dodge/parry % vs current opponent (stance-aware). */
+  defenseChances?: DefenseChances | null;
 }) {
   const cast = listDetailedCharacters();
   const accent = side === 'left' ? '#7dd3fc' : '#fca5a5';
@@ -256,10 +305,15 @@ function FighterCard({
   const bleed = summarizeBleed(unit.combatStats.itemizedHealth);
   const performance = calcPerformanceFromItemized(unit.combatStats.itemizedHealth);
   const mobilityIssues = mobilityProblemParts(unit.combatStats.itemizedHealth);
+  const trauma = calcTraumaPenalties(unit.combatStats.itemizedHealth);
   const blood = getBloodStatus(unit);
   const bloodPen = calcBloodCombatPenalties(blood.remainingFraction);
   const mobilityEffective = performance.mobility * bloodPen.mobility;
   const dodgeEffective = performance.dodge * bloodPen.dodge;
+  const npcDodge = defenseChances?.dodge ?? null;
+  const npcParry = defenseChances?.parry ?? null;
+  const npcBlock = defenseChances?.block ?? null;
+  const npcBlockValue = defenseChances?.blockValue ?? null;
 
   const primaryStats: { key: keyof typeof base; label: string }[] = [
     { key: 'strength', label: 'STR' },
@@ -343,10 +397,31 @@ function FighterCard({
             Stamina factor {(bloodPen.stamina * 100).toFixed(0)}%
             <span style={{ opacity: 0.55 }}> (from blood)</span>
             {' · '}
-            Mobility {(mobilityEffective * 100).toFixed(0)}% · Dodge{' '}
+            Mobility {(mobilityEffective * 100).toFixed(0)}% · Parts dodge{' '}
             {(dodgeEffective * 100).toFixed(0)}%
-            <span style={{ opacity: 0.55 }}> (parts × blood)</span>
+            <span style={{ opacity: 0.55 }}> (perf × blood)</span>
           </div>
+          {npcDodge != null && npcParry != null ? (
+            <div style={{ marginTop: 2, color: '#86efac' }}>
+              NPC defense · dodge {(npcDodge * 100).toFixed(0)}% · parry{' '}
+              {(npcParry * 100).toFixed(0)}%
+              {npcBlock != null && npcBlock > 0 ? (
+                <>
+                  {' '}
+                  · block {(npcBlock * 100).toFixed(0)}% (absorb{' '}
+                  {npcBlockValue?.toFixed(1)})
+                </>
+              ) : null}
+              <span style={{ opacity: 0.65 }}>
+                {' '}
+                (health×stam×weight
+                {defenseChances?.breakdown.avoidanceDelta
+                  ? ` +stance`
+                  : ''}
+                )
+              </span>
+            </div>
+          ) : null}
           {mobilityIssues.length > 0 && (
             <div style={{ color: '#fbbf24', marginTop: 2 }}>
               Limping:{' '}
@@ -357,6 +432,17 @@ function FighterCard({
                     `${formatBodyPartLabel(p.part)} ${(p.health * 100).toFixed(0)}%`
                 )
                 .join(', ')}
+            </div>
+          )}
+          {trauma.flagged.length > 0 && (
+            <div style={{ color: '#fda4af', marginTop: 2 }}>
+              Trauma:{' '}
+              {trauma.flagged
+                .slice(0, 4)
+                .map((t) => `${formatBodyPartLabel(t.part)} ${t.level}`)
+                .join(' · ')}
+              {trauma.flagged.length > 4 ? '…' : ''}
+              {trauma.chestBroken ? ' · breathing!' : ''}
             </div>
           )}
         </div>
@@ -370,7 +456,11 @@ function FighterCard({
                 .map((p) => (
                   <li key={p.part}>
                     {formatBodyPartLabel(p.part)} · health {(p.health * 100).toFixed(0)}% · bleed
-                    intensity {(p.bleedIntensity * 100).toFixed(0)}% · {p.criticality} · rate{' '}
+                    ext {(p.bleedIntensity * 100).toFixed(0)}%
+                    {p.internalBleedIntensity > 0
+                      ? ` · int ${(p.internalBleedIntensity * 100).toFixed(0)}%`
+                      : ''}{' '}
+                    · {p.criticality} · rate{' '}
                     {p.rate.toFixed(2)}
                   </li>
                 ))}
@@ -428,10 +518,39 @@ function FighterCard({
                 e.resolved.durabilityRatio <= 0 &&
                 e.resolved.instance.itemType === 'armor'
             )
-            .map((e) => e.resolved.instance.name)
-            .map((name) => (
-              <div key={name} style={{ color: '#f9a8d4' }}>
-                Ruined: {name}
+            .map((e) => (
+              <div
+                key={e.slot}
+                style={{
+                  color: '#f9a8d4',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 8,
+                  marginBottom: 4,
+                }}
+              >
+                <span>
+                  Ruined: {e.resolved.instance.name}{' '}
+                  <span style={{ opacity: 0.6 }}>({e.slot})</span>
+                </span>
+                {onDiscardRuined ? (
+                  <button
+                    type="button"
+                    onClick={() => onDiscardRuined(e.slot)}
+                    style={{
+                      padding: '2px 8px',
+                      fontSize: 11,
+                      background: 'rgba(244,114,182,0.15)',
+                      color: '#fbcfe8',
+                      border: '1px solid rgba(244,114,182,0.45)',
+                      borderRadius: 4,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Discard
+                  </button>
+                ) : null}
               </div>
             ))}
         </div>
@@ -623,6 +742,7 @@ function Battleground() {
   const [left, setLeft] = useState<FighterState | null>(() => cloneFighter(DEFAULT_LEFT));
   const [right, setRight] = useState<FighterState | null>(() => cloneFighter(DEFAULT_RIGHT));
   const [aim, setAim] = useState<AttackTargetKey>('chest');
+  const [attackMode, setAttackMode] = useState<AttackMode>('slash');
   /** Which side is currently being aimed at (drives silhouette sex + attack buttons). */
   const [attackDir, setAttackDir] = useState<AttackDirection>('leftToRight');
   /** Lab toggle: off = instant 100% hit; on = LoD shrinking-square QTE. */
@@ -630,8 +750,10 @@ function Battleground() {
   const [pendingRhythm, setPendingRhythm] = useState<PendingRhythmAttack | null>(
     null
   );
+  const [pendingPlayerDefense, setPendingPlayerDefense] =
+    useState<PendingPlayerDefense | null>(null);
   const [log, setLog] = useState<string[]>([
-    'Battleground ready. Aim on the silhouette, then Attack. Rhythm QTE is optional (toggle below).',
+    'Battleground ready. Fighter A = player (LMB dodge / RMB parry on defense QTE). B = NPC (%). Attack rhythm optional.',
   ]);
 
   useEffect(() => {
@@ -642,6 +764,26 @@ function Battleground() {
     setRight(cloneFighter(rightId));
   }, [rightId]);
 
+  const fighterWeaponType = (f: FighterState | null): string => {
+    if (!f) return 'punch';
+    const mainId = f.unit.equipment.mainhand;
+    const main = mainId ? f.itemsById[mainId] : null;
+    if (!main || main.itemType !== 'weapon') return 'punch';
+    return (
+      main.weaponType ??
+      getItemTemplate(main.templateId)?.weaponType ??
+      'punch'
+    );
+  };
+
+  const activeAttacker = attackDir === 'leftToRight' ? left : right;
+  const activeWeaponType = fighterWeaponType(activeAttacker);
+  const availableAttackModes = weaponAttackModes(activeWeaponType);
+
+  useEffect(() => {
+    setAttackMode((prev) => clampAttackMode(activeWeaponType, prev));
+  }, [activeWeaponType, attackDir, leftId, rightId]);
+
   const leftSnap = useMemo(
     () => (left ? compileCombatant(left.unit, left.itemsById) : null),
     [left]
@@ -651,10 +793,45 @@ function Battleground() {
     [right]
   );
 
+  /** Defense % for each fighter vs the other as attacker (stance-aware). */
+  const leftDefense = useMemo(
+    () => (left && right ? calcDefenseChancesVsAttacker(left, right) : null),
+    [left, right]
+  );
+  const rightDefense = useMemo(
+    () => (right && left ? calcDefenseChancesVsAttacker(right, left) : null),
+    [left, right]
+  );
+
   const pushLog = (lines: string | string[]) => {
     const batch = Array.isArray(lines) ? lines : [lines];
     const stamped = batch.map((line) => `[${new Date().toLocaleTimeString()}] ${line}`);
     setLog((prev) => [...stamped.reverse(), ...prev].slice(0, 80));
+  };
+
+  const discardRuinedOnSide = (side: 'left' | 'right', slot: ItemSlot) => {
+    const fighter = side === 'left' ? left : right;
+    const setFighter = side === 'left' ? setLeft : setRight;
+    if (!fighter) return;
+    const next: FighterState = {
+      unit: {
+        ...fighter.unit,
+        equipment: { ...fighter.unit.equipment },
+      },
+      itemsById: { ...fighter.itemsById },
+    };
+    const r = discardEquipped(
+      { unit: next.unit, itemsById: next.itemsById },
+      slot
+    );
+    if (!r.ok) {
+      pushLog(r.message);
+      return;
+    }
+    setFighter(next);
+    pushLog(
+      `${next.unit.name} discards ruined ${r.item.name} (${slot}) — removed from loadout.`
+    );
   };
 
   const defenderSnap = attackDir === 'leftToRight' ? rightSnap : leftSnap;
@@ -695,23 +872,134 @@ function Battleground() {
     }
     const attacker = direction === 'leftToRight' ? left : right;
     const defender = direction === 'leftToRight' ? right : left;
-    const critMultiplier =
-      grade === 'crit' ? COMBAT_TUNING.rhythm.critAttackMultiplier : 1;
-    const result = resolveBasicAttack(attacker, defender, aim, {
-      critMultiplier,
-    });
-    if (direction === 'leftToRight') {
-      setLeft(result.attacker);
-      setRight(result.defender);
-    } else {
-      setRight(result.attacker);
-      setLeft(result.defender);
-    }
     const tag =
       grade === 'bypass'
-        ? '[bypass:100% hit]'
+        ? '[bypass:swing connects]'
         : `[rhythm:${grade}]`;
-    pushLog([tag, ...result.log]);
+    const critMultiplier =
+      grade === 'crit' ? COMBAT_TUNING.rhythm.critAttackMultiplier : 1;
+    const mode = clampAttackMode(fighterWeaponType(attacker), attackMode);
+
+    // Player is Fighter A: B→A uses defense QTE (LMB dodge / RMB parry).
+    if (direction === 'rightToLeft') {
+      const dodgeBuilt = scaleDefenseRhythmWindow({
+        verb: 'dodge',
+        defender: defender.unit,
+        itemsById: defender.itemsById,
+        attacker: attacker.unit,
+        attackerItemsById: attacker.itemsById,
+      });
+      const parryBuilt = scaleDefenseRhythmWindow({
+        verb: 'parry',
+        defender: defender.unit,
+        itemsById: defender.itemsById,
+        attacker: attacker.unit,
+        attackerItemsById: attacker.itemsById,
+      });
+      setPendingPlayerDefense({
+        direction,
+        critMultiplier,
+        aim,
+        tag,
+        dodgeWindow: dodgeBuilt.window,
+        parryWindow: parryBuilt.window,
+        canParry: canParryWith(defender.unit, defender.itemsById),
+        attackMode: mode,
+      });
+      pushLog([
+        tag,
+        `Incoming on Fighter A (${ATTACK_MODE_LABELS[mode]}) — LMB/Space dodge, RMB/P parry.`,
+      ]);
+      return;
+    }
+
+    // A→B: NPC chance defense before damage.
+    const defense = resolveNpcDefense(attacker, defender);
+    if (defense.outcome !== 'none') {
+      setRight(defense.defender);
+      pushLog([tag, ...defense.log]);
+      return;
+    }
+
+    const result = resolveBasicAttack(attacker, defense.defender, aim, {
+      critMultiplier,
+      attackMode: mode,
+    });
+    setLeft(result.attacker);
+    setRight(result.defender);
+    pushLog([tag, ...defense.log, ...result.log]);
+  };
+
+  const clearPlayerDefense = () => {
+    setPendingPlayerDefense(null);
+  };
+
+  const applyPlayerDefenseSuccess = (verb: DefenseVerb, grade: RhythmGrade) => {
+    if (!pendingPlayerDefense || !left || !right) return;
+    const defender = {
+      unit: structuredClone(left.unit) as DetailedUnit,
+      itemsById: structuredClone(left.itemsById),
+    };
+    const attacker = right;
+    let cost = 0;
+    let qualityNote = '';
+    const traumaStam = calcTraumaPenalties(
+      defender.unit.combatStats.itemizedHealth
+    ).staminaDrainMult;
+    if (verb === 'dodge') {
+      const quality = grade === 'crit' ? 'precise' : 'sloppy';
+      cost = calcDodgeStamina(quality, traumaStam);
+      qualityNote = quality;
+    } else {
+      const quality = grade === 'crit' ? 'clean' : 'edge';
+      cost = calcParryStamina({
+        quality,
+        attackerCon: attacker.unit.combatStats.base.constitution,
+        defenderCon: defender.unit.combatStats.base.constitution,
+        staminaDrainMult: traumaStam,
+      });
+      qualityNote = quality;
+    }
+    const b = defender.unit.combatStats.base;
+    b.staminaCurrent = Math.max(
+      0,
+      roundToThousandths(b.staminaCurrent - cost)
+    );
+    setLeft(defender);
+    pushLog([
+      pendingPlayerDefense.tag,
+      `${defender.unit.name} ${verb === 'dodge' ? 'dodges' : 'parries'} (${qualityNote}, QTE ${grade}). Stamina −${cost} → ${b.staminaCurrent}.`,
+    ]);
+    clearPlayerDefense();
+  };
+
+  const applyPlayerDefenseFail = () => {
+    if (!pendingPlayerDefense || !left || !right) return;
+    const { critMultiplier, tag, aim: defAim, attackMode: mode } =
+      pendingPlayerDefense;
+    const result = resolveBasicAttack(right, left, defAim, {
+      critMultiplier,
+      attackMode: mode,
+    });
+    setRight(result.attacker);
+    setLeft(result.defender);
+    pushLog([
+      tag,
+      `${left.unit.name} mistimes defense — hit lands.`,
+      ...result.log,
+    ]);
+    clearPlayerDefense();
+  };
+
+  const onDefenseRhythmResult = (
+    grade: RhythmGrade,
+    detail: { verb?: DefenseVerb }
+  ) => {
+    if (grade === 'miss' || !detail.verb) {
+      applyPlayerDefenseFail();
+      return;
+    }
+    applyPlayerDefenseSuccess(detail.verb, grade);
   };
 
   const applyMissedAttack = (direction: AttackDirection) => {
@@ -762,7 +1050,7 @@ function Battleground() {
       pushLog('Cannot attack — pick two valid fighters.');
       return;
     }
-    if (pendingRhythm) return;
+    if (pendingRhythm || pendingPlayerDefense) return;
     setAttackDir(direction);
     if (!useRhythm) {
       applyConnectedAttack(direction, 'bypass');
@@ -869,7 +1157,7 @@ function Battleground() {
         >
           Click the defender silhouette to pick an aim zone (8 regions). Optional attack-rhythm
           QTE (Legend of Dragoon–style square) gates the hit; toggle it off for instant 100% hits.
-          Defender parry / dodge still deferred.
+          A→B: NPC dodge/parry %. B→A: player defense QTE — LMB dodge / RMB parry.
         </p>
       </header>
 
@@ -877,10 +1165,42 @@ function Battleground() {
         <AttackRhythmQte
           rhythmWindow={pendingRhythm.rhythmWindow}
           accent={pendingRhythm.direction === 'leftToRight' ? '#fca5a5' : '#7dd3fc'}
+          splash={{
+            sex:
+              (pendingRhythm.direction === 'leftToRight'
+                ? rightSnap?.unit.sex
+                : leftSnap?.unit.sex) ?? 'M',
+            aim,
+          }}
+          hint="Time the strike on the aimed zone"
           onResult={(grade) => onRhythmResult(grade)}
           onCancel={() => {
             pushLog('[rhythm:cancel] Attack timing cancelled.');
             setPendingRhythm(null);
+          }}
+        />
+      ) : null}
+
+      {pendingPlayerDefense && left ? (
+        <AttackRhythmQte
+          rhythmWindow={pendingPlayerDefense.dodgeWindow}
+          accent="#86efac"
+          ariaLabel="Defense timing"
+          hint="LMB / Space = dodge · RMB / P = parry — time the overlap"
+          resultHoldMs={1100}
+          splash={{
+            sex: left.unit.sex,
+            aim: pendingPlayerDefense.aim,
+          }}
+          defenseInput={{
+            canParry: pendingPlayerDefense.canParry,
+            dodgeWindow: pendingPlayerDefense.dodgeWindow,
+            parryWindow: pendingPlayerDefense.parryWindow,
+          }}
+          onResult={(grade, detail) => onDefenseRhythmResult(grade, detail)}
+          onCancel={() => {
+            pushLog('Defense cancelled — taking the hit.');
+            applyPlayerDefenseFail();
           }}
         />
       ) : null}
@@ -902,6 +1222,8 @@ function Battleground() {
           selectedId={leftId}
           onSelect={setLeftId}
           onStanceChange={(patch) => patchStance('left', patch)}
+          onDiscardRuined={(slot) => discardRuinedOnSide('left', slot)}
+          defenseChances={leftDefense}
         />
 
         <div
@@ -1042,6 +1364,53 @@ function Battleground() {
             </span>
           </label>
 
+          <div
+            style={{
+              width: '100%',
+              padding: '8px 10px',
+              borderRadius: 8,
+              border: '1px solid rgba(255,255,255,0.12)',
+              background: 'rgba(255,255,255,0.03)',
+              boxSizing: 'border-box',
+              fontSize: 12,
+            }}
+          >
+            <div style={{ opacity: 0.65, marginBottom: 6 }}>
+              Attack mode · {activeWeaponType}
+            </div>
+            {availableAttackModes.length > 1 ? (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {availableAttackModes.map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setAttackMode(m)}
+                    style={{
+                      ...simBtn,
+                      padding: '4px 10px',
+                      fontSize: 12,
+                      background:
+                        attackMode === m
+                          ? 'rgba(167,139,250,0.35)'
+                          : 'rgba(255,255,255,0.06)',
+                      borderColor:
+                        attackMode === m
+                          ? 'rgba(196,181,253,0.7)'
+                          : 'rgba(255,255,255,0.15)',
+                    }}
+                  >
+                    {ATTACK_MODE_LABELS[m]}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div style={{ color: '#c4b5fd' }}>
+                {ATTACK_MODE_LABELS[availableAttackModes[0] ?? attackMode]}
+                <span style={{ opacity: 0.55 }}> (only)</span>
+              </div>
+            )}
+          </div>
+
           <button
             type="button"
             style={{
@@ -1053,10 +1422,10 @@ function Battleground() {
                   : 'linear-gradient(180deg, #1d2a3f 0%, #121a2a 100%)',
             }}
             onClick={() => runAttack(attackDir)}
-            disabled={!!pendingRhythm}
+            disabled={!!pendingRhythm || !!pendingPlayerDefense}
           >
             {attackDir === 'leftToRight' ? 'A → B Attack' : 'B → A Attack'}
-            {useRhythm ? ' (QTE)' : ''}
+            {useRhythm ? ' (QTE)' : ''} · {ATTACK_MODE_LABELS[attackMode]}
           </button>
           <button
             type="button"
@@ -1064,7 +1433,7 @@ function Battleground() {
             onClick={() =>
               runAttack(attackDir === 'leftToRight' ? 'rightToLeft' : 'leftToRight')
             }
-            disabled={!!pendingRhythm}
+            disabled={!!pendingRhythm || !!pendingPlayerDefense}
           >
             {attackDir === 'leftToRight' ? 'B → A Attack' : 'A → B Attack'}
             {useRhythm ? ' (QTE)' : ''}
@@ -1081,7 +1450,7 @@ function Battleground() {
               pushLog([...a.log, ...b.log]);
             }}
           >
-            Pass 1 min (bleed)
+            Pass 1 min (bleed/heal)
           </button>
           <button
             type="button"
@@ -1095,13 +1464,95 @@ function Battleground() {
               pushLog([...a.log, ...b.log]);
             }}
           >
-            Pass 5 min (bleed)
+            Pass 5 min (bleed/heal)
           </button>
           <button type="button" style={simBtn} onClick={swapSides}>
             Swap sides
           </button>
           <button type="button" style={simBtn} onClick={resetPair}>
             Reset Lyn / Kent
+          </button>
+          <button
+            type="button"
+            style={simBtn}
+            onClick={() => {
+              if (!left) return;
+              const itemsById = { ...left.itemsById };
+              let n = 0;
+              for (const [id, item] of Object.entries(itemsById)) {
+                if (item.itemType !== 'armor') continue;
+                itemsById[id] = { ...item, durability: 0 };
+                n += 1;
+              }
+              setLeft({ unit: left.unit, itemsById });
+              pushLog(
+                `Lab: zeroed durability on ${n} armor piece(s) for ${left.unit.name}.`
+              );
+            }}
+          >
+            Lab: ruin armor (A)
+          </button>
+          <button
+            type="button"
+            style={simBtn}
+            onClick={() => {
+              if (!left) return;
+              const part =
+                listCarePriorityParts(left.unit.combatStats.itemizedHealth, 1)[0] ??
+                ('chestLeft' as BodyPartId);
+              const unit = structuredClone(left.unit) as DetailedUnit;
+              const itemsById = { ...left.itemsById };
+              const had = !!findOwnedConsumable(itemsById, BANDAGE_TEMPLATE_ID);
+              const r = useBandageOnPart(
+                unit.combatStats.itemizedHealth,
+                part,
+                itemsById,
+                { allowLabFree: true }
+              );
+              if (!r.ok) {
+                pushLog(r.message);
+                return;
+              }
+              setLeft({ unit, itemsById });
+              pushLog(
+                `${unit.name}: bandage → ${formatBodyPartLabel(part)}${
+                  r.already ? ' (already dressed)' : ''
+                }${r.labFree || !had ? ' · lab free' : ' · consumed'}.`
+              );
+            }}
+          >
+            Bandage A (priority)
+          </button>
+          <button
+            type="button"
+            style={simBtn}
+            onClick={() => {
+              if (!left) return;
+              const part =
+                listCarePriorityParts(left.unit.combatStats.itemizedHealth, 1)[0] ??
+                ('chestLeft' as BodyPartId);
+              const unit = structuredClone(left.unit) as DetailedUnit;
+              const itemsById = { ...left.itemsById };
+              const had = !!findOwnedConsumable(itemsById, VULNERARY_TEMPLATE_ID);
+              const r = useVulneraryOnPart(
+                unit.combatStats.itemizedHealth,
+                part,
+                itemsById,
+                { allowLabFree: true }
+              );
+              if (!r.ok) {
+                pushLog(r.message);
+                return;
+              }
+              setLeft({ unit, itemsById });
+              pushLog(
+                `${unit.name}: vulnerary → ${formatBodyPartLabel(part)}${
+                  r.already ? ' (already applied)' : ''
+                }${r.labFree || !had ? ' · lab free' : ' · consumed'}.`
+              );
+            }}
+          >
+            Vulnerary A (priority)
           </button>
         </div>
 
@@ -1111,6 +1562,8 @@ function Battleground() {
           selectedId={rightId}
           onSelect={setRightId}
           onStanceChange={(patch) => patchStance('right', patch)}
+          onDiscardRuined={(slot) => discardRuinedOnSide('right', slot)}
+          defenseChances={rightDefense}
         />
       </div>
 

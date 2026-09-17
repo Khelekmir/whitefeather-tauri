@@ -88,6 +88,19 @@ export const COMBAT_TUNING = {
   weaponWearVsSoftScale: 0.004,
   weaponWearVsFleshScale: 0.002,
 
+  /**
+   * Attack-value vs weapon durability (soft until break).
+   * Linear intact curve through (referenceRatio, referenceMult) and (1, 1).
+   * At/below brokenRatio the swing collapses to unequipped/punch.
+   */
+  weaponDurabilityAttack: {
+    /** durability/max ≤ this → treat as broken (punch fallback). */
+    brokenRatio: 0.02,
+    /** Anchor: at this wear ratio, attack mult = referenceMult (e.g. 5% → 80%). */
+    referenceRatio: 0.05,
+    referenceMult: 0.8,
+  },
+
   /** Layer falloff: outer takes full wear, next 1/2, then 1/4… */
   layerFalloffBase: 2,
 
@@ -101,7 +114,7 @@ export const COMBAT_TUNING = {
    * Rough feel: sustained rate ~4 over 10 min ≈ 0.8–1.0 L on a ~5 L adult
    * (moderate hemorrhage class) before clotting/care.
    */
-  bleedToBloodLossScale: 0.022,
+  bleedToBloodLossScale: 0.022, // 0.022
   /**
    * Direct stamina point drain per (bleedRate × minute), on top of
    * blood-fraction stamina *effectiveness* penalties.
@@ -111,6 +124,98 @@ export const COMBAT_TUNING = {
   clotRatePerMinute: 0.08,
   /** Ruined undressed parts (health 0, !dressed) do not clot below this intensity. */
   unclottableRuinedIntensity: 1,
+  /**
+   * Internal bleed vs external.
+   * - Rate mult: internal still drains volume but less “spray”
+   * - Clot mult: slower natural internal clotting
+   * - Vulnerary efficiency: salve helps internal at this fraction of full effect
+   *   (rate cut + clot boost); dressing never affects internal.
+   */
+  internalBleedRateMult: 0.85,
+  internalClotMult: 0.65,
+  vulneraryInternalEfficiency: 0.75,
+
+  /**
+   * Bruising — blunt/internal residue. Slow fade for post-combat care beats.
+   */
+  bruise: {
+    /** damagePercent × internalFrac × this → bruise gain. */
+    fromInternalMult: 1,
+    /** Soft floor: bruise ≥ internalBleed × this. */
+    linkToInternal: 0.5,
+    /** Unassisted fade per minute (~8h+ from full toward faint). */
+    fadePerMinute: 0.002,
+    /** While vulnerary on part — nighttime salve clears much faster. */
+    vulneraryFadeMult: 4,
+    /** Active internalBleed slows bruise resolution. */
+    fadeSlowFromInternal: 0.5,
+    /** Below this, treat as cleared. */
+    minVisible: 0.05,
+  },
+
+  /**
+   * Sprain / fracture / broken — independent of part.health.
+   * Highest flag per part only (broken > fracture > sprain).
+   */
+  traumaFlags: {
+    severity: { sprain: 1, fracture: 2, broken: 3 },
+    lowerBody: {
+      mobilityPerPoint: 0.06,
+      dodgePerPoint: 0.07,
+      floor: 0.25,
+    },
+    arms: {
+      attackPerPoint: 0.05,
+      parryPerPoint: 0.06,
+      blockPerPoint: 0.06,
+      floor: 0.3,
+    },
+    chestBroken: {
+      staminaDrainMult: 1.35,
+      globalCombatMult: 0.88,
+    },
+  },
+
+  /**
+   * Natural healing + care (bandage / vulnerary) — see woundCare.ts.
+   * Heal advances part.health on tickBleed; clot mult scales clotRatePerMinute.
+   */
+  woundCare: {
+    /**
+     * Unassisted health recovery per minute (0–1 scale).
+     * Deliberately glacial — not viable for short-term recovery
+     * (~50% wound ≈ 3+ weeks). Magic/holy healing will cover acute care.
+     */
+    naturalHealPerMinute: 0.000015,
+    /** Bandage (`dressed`): mild heal accel; clotting is its main job. */
+    bandageHealMult: 1.15,
+    /**
+     * Vulnerary (`vulnerary`): major convalescence boost.
+     * Effective ≈ 0.000225/min → light chip (~0.2) overnight (~15 h);
+     * full recovery from ruined ≈ 3 days with salve.
+     */
+    vulneraryHealMult: 15,
+    /** Bandage primary job — clotting. */
+    bandageClotMult: 3,
+    /** Vulnerary also clots. */
+    vulneraryClotMult: 2,
+    /** From health 0 once dressed — slow stump recovery. */
+    ruinedDressedHealMult: 0.35,
+    fractureHealMult: 0.5,
+    brokenHealMult: 0.25,
+  },
+
+  /**
+   * Active bleed → cloth soil (Pass Time / tickBleed).
+   * amount01 = bleedRate × minutes × bleedSoilPerRateMinute × coverage × absorb,
+   * applied innermost-covering layer first; flow × bleedSoilBleedThrough continues outward.
+   */
+  bleedSoilPerRateMinute: 0.045,
+  /** Fraction of remaining blood flow that continues past a layer after it soaks. */
+  bleedSoilBleedThrough: 0.42,
+  /** Soft cloth / leather absorb multiplier (vs hard plate surface stain). */
+  bleedSoilSoftAbsorb: 1,
+  bleedSoilHardAbsorb: 0.32,
 
   /**
    * Attacker rhythm QTE (Legend of Dragoon–style shrinking square).
@@ -180,6 +285,46 @@ export const COMBAT_TUNING = {
   },
 
   /**
+   * Player defender QTE (Dodge / Parry) — reuses shrinking-square visuals.
+   * Battleground: Fighter A = player; B→A uses this instead of NPC %.
+   */
+  defenseRhythm: {
+    /** Base collapse time (ms); further scaled by verb + stance. */
+    durationMs: 1000,
+    startScale: 2.6,
+    endScale: 0.55,
+    critBand: 0.028,
+    hitBand: 0.12,
+    rotationDegrees: 240,
+    /**
+     * Dodge is easier than parry by default (wider bands, slightly slower).
+     * Final dodge band *= dodgeBandEase; duration *= dodgeDurationEase.
+     */
+    dodgeBandEase: 1.25,
+    dodgeDurationEase: 1.12,
+    /**
+     * How strongly parryWindowFactor tightens parry bands / speeds collapse.
+     * (Same idea as rhythm.windowBandInfluence.)
+     */
+    parryWindowInfluence: 0.9,
+    /**
+     * Dodge: mobility/blood factor (0–1) scales bands.
+     * band *= dodgeMobilityFloor + (1 - floor) * mobilityEffective
+     */
+    dodgeMobilityFloor: 0.35,
+    /**
+     * AvoidanceDelta > 0 eases dodge (slower collapse / wider band).
+     * duration *= 1 + max(0, avoidanceDelta) * avoidanceEase
+     * band *= 1 + max(0, avoidanceDelta) * avoidanceBand
+     */
+    avoidanceEase: 0.45,
+    avoidanceBand: 0.35,
+    /** Negative avoidance (opposite line) haste / tighten. */
+    avoidanceHaste: 0.35,
+    avoidanceTighten: 0.25,
+  },
+
+  /**
    * Stance matchup (cover vs strike). Window factor now also sizes the
    * attacker rhythm bands when rhythm mode is on. Body-part remap is live.
    */
@@ -217,6 +362,12 @@ export const COMBAT_TUNING = {
       mid: 0.95,
       low: 0.78,
     },
+    /**
+     * Inherent cover bias on defense performance (chance + player QTE ease).
+     * coverHigh favors parry; coverLow favors dodge; coverMid is neutral (1).
+     */
+    coverHighParryMult: 1.1,
+    coverLowDodgeMult: 1.1,
   },
 
   /**
@@ -271,5 +422,13 @@ export const COMBAT_TUNING = {
     parryEdge: 0.28,
     /** Parry vs much stronger attacker: × sqrt(atkCon/defCon) capped. */
     parryConDiffScale: 1,
+    /** Successful shield block (old attackBlocked). */
+    blockBasic: 0.2,
+    /** × sqrt(atkCon/defCon) on block stam. */
+    blockConDiffScale: 1,
+    blockMin: 0.08,
   },
+
+  /** Shield durability loss on successful block (port CalcShieldDurabilityLoss). */
+  shieldWearScale: 0.05, // old /20 → 0.05
 } as const;

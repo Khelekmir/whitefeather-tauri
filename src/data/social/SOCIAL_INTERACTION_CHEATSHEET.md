@@ -11,7 +11,11 @@ Combat and sex are scoped-in writers into the same ST → LT relationship pipeli
 - Magnitude left qualitative: **soft / mid / hard** spike.
 - LT standing then moves via crystallization (`relationshipCrystallization.ts`) as ST decays on time passage.
 
-Related code: `relationships.ts`, `relationshipCrystallization.ts`, `relationshipState.ts`, `SocialLab.tsx`.
+Related code: `relationships.ts`, `relationshipCrystallization.ts`, `relationshipState.ts`, `SocialLab.tsx`, `utils/social/resolveSocialTask.ts`.
+
+**First resolve slice (live in SocialLab):** `do_laundry`, `bathe`, `bathe_together`, `share_watch`, `cook_meal`, `tend_wounds`. Magnitudes in `SOCIAL_TASK_TUNING`. Other catalog rows still stub.
+
+**Paused for Lewd Lab** — resume checklist & follow-ups: `SOCIAL_TASKS_FOLLOWUP.md`.
 
 ---
 

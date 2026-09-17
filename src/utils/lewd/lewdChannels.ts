@@ -1,5 +1,6 @@
-import type { LewdActionDef } from '../../data/lewd/lewdCatalog';
+import type { LewdActionDef, LewdAccessTier } from '../../data/lewd/lewdCatalog';
 import type { Unit as DetailedUnit } from '../../types/characters';
+import type { Item } from '../../types/items';
 import {
   getEdge,
   orientationResistance01,
@@ -11,6 +12,13 @@ import {
   type ArousalReadiness,
 } from './arousalGate';
 import { calcStimulation, type StimulationResult } from './calcStimulation';
+import {
+  clothingBarrierForLewdTarget,
+  clothingIntimacyMult,
+  clothingStimMult,
+  type ClothingAccessMode,
+  type ClothingBarrier,
+} from './clothingAccess';
 import { erogenousRank } from './erogenous';
 import {
   bodilyStateFromHormones,
@@ -25,6 +33,8 @@ import {
   socialMultFromBond,
   type BondSnapshot,
 } from './intimacyBond';
+import { lewdTargetToBodyParts } from '../../data/lewd/lewdPartCoverage';
+import { maxBruiseOnParts } from '../combat/bruise';
 import { getLewdAction, getLewdBit, toLewdSexKey } from './lewdCatalogAccess';
 import { LEWD_TUNING as T } from './lewdTuning';
 
@@ -34,6 +44,18 @@ export interface LewdChannel {
   actionId: string;
   targetPart: string;
   intensity: number;
+  /**
+   * Lab timing: programmed length of this locus (seconds).
+   * Engine resolve ignores these; Lewd Lab Play re-arms remaining and ticks 1s.
+   */
+  durationSeconds?: number;
+  /** Lab timing: seconds left in the current Play run (0 = idle until Play again). */
+  remainingSeconds?: number;
+  /**
+   * How the actor reaches the target through clothing.
+   * over = all layers; under = skip outer soft (shirt/leg); displace = push aside then touch.
+   */
+  clothingAccess?: ClothingAccessMode;
 }
 
 export type AttentionLimb = 'mouth' | 'hands' | 'feet' | 'genitals' | 'other';
@@ -124,6 +146,12 @@ export interface ResolvedChannel {
   overstep: boolean;
   overstepSeverity: number;
   physioScore: number;
+  /** Catalog action.pain 0–1 (0 if untagged). */
+  pain: number;
+  clothingBlocked: boolean;
+  clothingAccess: ClothingAccessMode;
+  accessTier: LewdAccessTier;
+  clothingBarrier: ClothingBarrier | null;
 }
 
 export interface ChannelMergeResult {
@@ -146,8 +174,16 @@ export interface ChannelMergeResult {
   /** Worst / primary stim for banding display. */
   primaryStim: StimulationResult;
   summary: string;
-  /** Flat discomfort to seed before tick (unready attempts). */
+  /**
+   * Flat **psych** discomfort to seed before tick (unready attempts).
+   * Does not raise physical discomfort.
+   */
   readinessDiscomfortFlat: number;
+  /** Strongest catalog pain among receptive channels (0–1). */
+  pain: number;
+  /** Intensity of the channel contributing `pain`. */
+  painIntensity: number;
+  clothingBlocked: boolean;
 }
 
 function socialContext(
@@ -182,7 +218,8 @@ function resolveOneChannel(
   channel: LewdChannel,
   ctx: ReturnType<typeof socialContext>,
   currentArousal: number,
-  gateOpts: { climaxCount: number; receptivity: number }
+  gateOpts: { climaxCount: number; receptivity: number },
+  itemsById?: Record<string, Item>
 ): ResolvedChannel {
   const action = getLewdAction(channel.actionId);
   if (!action) throw new Error(`Unknown lewd action: ${channel.actionId}`);
@@ -193,12 +230,59 @@ function resolveOneChannel(
 
   const partRow = recipient.lewdStats.itemizedLewd[channel.targetPart];
   const preference = partRow?.preference ?? 5;
-  const preferredIntensity = partRow?.prefIntensity ?? 3;
+  const basePreferredIntensity = partRow?.prefIntensity ?? 3;
   const maxIntensity = partRow?.maxIntensity ?? 8;
+  // Combat bruise on mapped body parts lowers what feels “attuned.”
+  const bruiseSev = maxBruiseOnParts(
+    recipient.combatStats.itemizedHealth,
+    lewdTargetToBodyParts(channel.targetPart)
+  );
+  const preferredIntensity = Math.max(
+    0.5,
+    Math.min(
+      maxIntensity,
+      basePreferredIntensity -
+        bruiseSev * T.bruisePrefIntensityPenalty
+    )
+  );
   const sensMult = partRow?.sensitivity ?? 1;
   const catalogSens = targetBit.sensitivity;
   const sensitivity = catalogSens * sensMult;
   const erogenous = erogenousRank(catalogSens);
+
+  const clothingAccess: ClothingAccessMode = channel.clothingAccess ?? 'over';
+  const accessTier: LewdAccessTier = action.access ?? 'clothOk';
+  const clothingBarrier =
+    accessTier === 'any'
+      ? null
+      : clothingBarrierForLewdTarget(
+          recipient,
+          itemsById,
+          channel.targetPart,
+          clothingAccess
+        );
+
+  let clothingBlocked = false;
+  if (clothingBarrier) {
+    if (clothingBarrier.hardBlocked) {
+      clothingBlocked = true;
+    } else if (
+      (accessTier === 'skin' || accessTier === 'orifice') &&
+      !clothingBarrier.skinClear
+    ) {
+      clothingBlocked = true;
+    }
+  }
+
+  const softBarrier = clothingBarrier?.softBarrier01 ?? 0;
+  const stimClothMult =
+    clothingBlocked || accessTier === 'any'
+      ? 1
+      : clothingStimMult(softBarrier);
+  const intimacyClothMult =
+    clothingBlocked || accessTier === 'any'
+      ? 1
+      : clothingIntimacyMult(softBarrier);
 
   const dominanceActor = proactive.lewdStats.static.submissive ? 0.7 : 1.2;
   const dominanceRecipient = recipient.lewdStats.static.submissive ? 0.7 : 1.2;
@@ -249,9 +333,10 @@ function resolveOneChannel(
     ((recipient.lewdStats.dynamic.lust || 40) / 50) * crestInterest
   );
   const intimacyRequired =
-    action.intimacy * 4.8 +
-    ((actorBit?.intimacy ?? 3) + targetBit.intimacy) * 0.9 +
-    3.8 * Math.log1p(channel.intensity);
+    (action.intimacy * 4.8 +
+      ((actorBit?.intimacy ?? 3) + targetBit.intimacy) * 0.9 +
+      3.8 * Math.log1p(channel.intensity)) *
+    intimacyClothMult;
   const intimacyAllowed = intimacyAllowedForAct(
     ctx.bond,
     intimacyRequired,
@@ -260,7 +345,8 @@ function resolveOneChannel(
 
   const arousalRequired = requiredArousalForAct(
     action.intimacy,
-    targetBit.intimacy
+    targetBit.intimacy,
+    targetBit.sensitivity
   );
   const arousalReadiness = evaluateArousalReadiness(
     currentArousal,
@@ -305,7 +391,9 @@ function resolveOneChannel(
   let psychQuality = 0;
   let physioQuality = 0;
   const receptiveEnough =
-    intimacyAllowed && arousalReadiness !== 'hardUnready';
+    intimacyAllowed &&
+    arousalReadiness !== 'hardUnready' &&
+    !clothingBlocked;
   if (receptiveEnough) {
     psychQuality = Math.min(
       1.25,
@@ -315,7 +403,10 @@ function resolveOneChannel(
         bondPsych *
         skinshipCrest
     );
-    physioQuality = Math.min(1, stim.physio * (0.35 + 0.65 * erogenous));
+    physioQuality = Math.min(
+      1,
+      stim.physio * (0.35 + 0.65 * erogenous) * stimClothMult
+    );
     if (arousalReadiness === 'softUnready') {
       psychQuality *= T.arousalGate.softUnreadyQualityMult;
       physioQuality *= T.arousalGate.softUnreadyQualityMult;
@@ -323,6 +414,10 @@ function resolveOneChannel(
   }
 
   const physioScore = physioQuality * (0.25 + 0.75 * erogenous);
+  const pain =
+    receptiveEnough && action.pain != null && action.pain > 0
+      ? Math.max(0, Math.min(1, action.pain))
+      : 0;
 
   return {
     channel,
@@ -343,6 +438,11 @@ function resolveOneChannel(
     overstep,
     overstepSeverity,
     physioScore,
+    pain,
+    clothingBlocked,
+    clothingAccess,
+    accessTier,
+    clothingBarrier,
   };
 }
 
@@ -441,6 +541,9 @@ export function mergeResolvedChannels(
     if (!r.intimacyAllowed) {
       return `tried to ${r.action.verb} ${recipient.name}'s ${r.targetName} (trust/affection blocked)`;
     }
+    if (r.clothingBlocked) {
+      return `tried to ${r.action.verb} ${recipient.name}'s ${r.targetName} (blocked by clothing/armor)`;
+    }
     if (r.arousalReadiness === 'hardUnready') {
       return `tried to ${r.action.verb} ${recipient.name}'s ${r.targetName} (not aroused enough — needs ~${r.arousalRequired.toFixed(0)})`;
     }
@@ -462,6 +565,19 @@ export function mergeResolvedChannels(
   );
   const primaryStim = worstOver?.stimulation ?? primary.stimulation;
 
+  let pain = 0;
+  let painIntensity = 0;
+  for (const r of resolved) {
+    if (
+      r.intimacyAllowed &&
+      r.arousalReadiness !== 'hardUnready' &&
+      r.pain > pain
+    ) {
+      pain = r.pain;
+      painIntensity = r.channel.intensity;
+    }
+  }
+
   return {
     channels: resolved,
     psychQuality: round3(psychQuality),
@@ -482,6 +598,9 @@ export function mergeResolvedChannels(
     primaryStim,
     summary,
     readinessDiscomfortFlat,
+    pain: round3(pain),
+    painIntensity,
+    clothingBlocked: resolved.some((r) => r.clothingBlocked),
   };
 }
 
@@ -491,7 +610,8 @@ export function analyzeChannels(
   channels: LewdChannel[],
   currentArousal: number,
   relationships?: RelationshipGraph,
-  gateOpts?: { climaxCount?: number; receptivity?: number }
+  gateOpts?: { climaxCount?: number; receptivity?: number },
+  itemsById?: Record<string, Item>
 ): ResolvedChannel[] {
   if (channels.length < 1) throw new Error('Need at least one channel');
   if (channels.length > T.channels.maxChannels) {
@@ -503,7 +623,15 @@ export function analyzeChannels(
     receptivity: gateOpts?.receptivity ?? 1,
   };
   return channels.map((ch) =>
-    resolveOneChannel(proactive, recipient, ch, ctx, currentArousal, gate)
+    resolveOneChannel(
+      proactive,
+      recipient,
+      ch,
+      ctx,
+      currentArousal,
+      gate,
+      itemsById
+    )
   );
 }
 

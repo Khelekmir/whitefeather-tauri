@@ -1,6 +1,8 @@
 import { getArmorSlotSize } from '../../data/combat/armorSlotSize';
 import { getWeaponTypeInfo } from '../../data/combat/weaponTypes';
 import { getMaterial } from '../../data/combat/materials';
+import { getShieldTypeInfo } from '../../data/combat/shieldTypes';
+import { getItemTemplate } from '../../data/catalog/itemTemplates';
 import type { Item, MaterialId } from '../../types/items';
 import {
   COMBAT_TUNING,
@@ -80,7 +82,10 @@ export function calcArmorDurabilityLoss(
       layerScaling;
   }
 
-  return Math.min(item.durability, roundToThousandths(loss));
+  // Uncapped base chip — callers clamp to the struck panel (or scalar) remaining.
+  // Capping by whole-item durability here would starve intact panels on a
+  // partially shredded garment.
+  return roundToThousandths(loss);
 }
 
 export type WeaponWearTarget = 'hard' | 'soft' | 'flesh';
@@ -127,4 +132,22 @@ export function calcWeaponDurabilityLoss(
     clash;
 
   return Math.min(weapon.durability, roundToThousandths(loss));
+}
+
+/** Port of utils_old CalcShieldDurabilityLoss — chip on successful block. */
+export function calcShieldDurabilityLoss(
+  shield: Item,
+  attackerAtkBase: number,
+  attackerWeaponHardness: number
+): number {
+  const material = getMaterial(shield.material);
+  const template = getItemTemplate(shield.templateId);
+  const typeId = shield.shieldType ?? template?.shieldType ?? 'heater';
+  const sizeMultiplier = Math.max(0.5, getShieldTypeInfo(typeId).sizeFactor);
+  const matDur = Math.max(0.5, material.durability);
+  const loss =
+    ((Math.max(0, attackerAtkBase) / sizeMultiplier) / matDur) *
+    (Math.max(0.5, attackerWeaponHardness) / matDur) *
+    COMBAT_TUNING.shieldWearScale;
+  return Math.min(shield.durability, roundToThousandths(loss));
 }

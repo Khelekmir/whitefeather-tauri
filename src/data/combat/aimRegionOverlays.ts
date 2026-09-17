@@ -122,3 +122,62 @@ export const AIM_REGIONS_BY_SEX: Record<Sex, AimRegion[]> = {
 export function getAimRegionsForSex(sex: Sex): AimRegion[] {
   return AIM_REGIONS_BY_SEX[sex];
 }
+
+/** viewBox size shared by silhouette overlays (matches AimTargetPanel). */
+export const AIM_VIEWBOX = { width: 200, height: 300 } as const;
+
+/**
+ * Parse simple SVG path `d` (M/L/Z only) into absolute points.
+ * Enough for our hand-authored aim polygons.
+ */
+export function parseAimPathPoints(d: string): { x: number; y: number }[] {
+  const points: { x: number; y: number }[] = [];
+  const re = /([MLZmlz])|(-?\d*\.?\d+)/g;
+  let cmd = 'M';
+  let nums: number[] = [];
+  let m: RegExpExecArray | null;
+  const flush = () => {
+    if (cmd === 'M' || cmd === 'L' || cmd === 'm' || cmd === 'l') {
+      for (let i = 0; i + 1 < nums.length; i += 2) {
+        points.push({ x: nums[i]!, y: nums[i + 1]! });
+      }
+    }
+    nums = [];
+  };
+  while ((m = re.exec(d))) {
+    if (m[1]) {
+      flush();
+      cmd = m[1];
+    } else if (m[2] != null) {
+      nums.push(Number(m[2]));
+    }
+  }
+  flush();
+  return points;
+}
+
+/** Axis-aligned bbox center of an aim region in viewBox coords. */
+export function getAimRegionCenter(
+  sex: Sex,
+  key: AttackTargetKey
+): { x: number; y: number } {
+  const region = getAimRegionsForSex(sex).find((r) => r.key === key);
+  if (!region) {
+    return { x: AIM_VIEWBOX.width / 2, y: AIM_VIEWBOX.height / 2 };
+  }
+  const pts = parseAimPathPoints(region.d);
+  if (pts.length === 0) {
+    return { x: AIM_VIEWBOX.width / 2, y: AIM_VIEWBOX.height / 2 };
+  }
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const p of pts) {
+    minX = Math.min(minX, p.x);
+    minY = Math.min(minY, p.y);
+    maxX = Math.max(maxX, p.x);
+    maxY = Math.max(maxY, p.y);
+  }
+  return { x: (minX + maxX) / 2, y: (minY + maxY) / 2 };
+}

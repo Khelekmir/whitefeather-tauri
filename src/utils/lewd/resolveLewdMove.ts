@@ -1,6 +1,7 @@
 import type { Unit as DetailedUnit } from '../../types/characters';
 import type { RelationshipGraph } from '../social/relationshipState';
 import {
+  createEncounterArousalState,
   updateEncounterArousal,
   type EncounterArousalState,
 } from './encounterArousal';
@@ -17,6 +18,7 @@ import {
 } from './conception';
 import { dischargeOnClimax, type FluidDischargeEvent } from './fluidDischarge';
 import { applyDischargesToRecipientSoil } from './fluidSoil';
+import { bondFromEdge } from './intimacyBond';
 import {
   analyzeChannels,
   mergeResolvedChannels,
@@ -27,7 +29,12 @@ import {
 import { LEWD_TUNING as T } from './lewdTuning';
 import { bandOutcome, outcomeLabel, type LewdOutcomeBand } from './outcomes';
 import { hormonesForUnit } from './ovulationCycle';
+import {
+  painPhysRateFromAction,
+  painPsychShareFromContext,
+} from './painPsych';
 import { evaluateProactivePush } from './proactiveGiver';
+import { getEdge } from '../social/relationshipState';
 
 export type { LewdChannel } from './lewdChannels';
 
@@ -41,6 +48,8 @@ export interface LewdChannelsInput {
   /** Proactive (giver) encounter meters. */
   proactiveEncounter?: EncounterArousalState;
   relationships?: RelationshipGraph;
+  /** Item bank for clothing barriers / displace (mutated when displacing). */
+  itemsById?: Record<string, import('../../types/items').Item>;
 }
 
 /** @deprecated single-channel shape — prefer LewdChannelsInput */
@@ -117,13 +126,7 @@ export function resolveLewdChannels(input: LewdChannelsInput): LewdMoveResult {
     relationships,
   } = input;
   const proactiveEncounter =
-    input.proactiveEncounter ?? {
-      arousal: 0,
-      edge: 0,
-      discomfort: 0,
-      climaxCount: 0,
-      receptivity: 1,
-    };
+    input.proactiveEncounter ?? createEncounterArousalState();
 
   const giver = evaluateProactivePush(
     proactive,
@@ -142,7 +145,8 @@ export function resolveLewdChannels(input: LewdChannelsInput): LewdMoveResult {
     {
       climaxCount: encounter.climaxCount,
       receptivity: encounter.receptivity,
-    }
+    },
+    input.itemsById
   );
   const merge = mergeResolvedChannels(proactive, recipient, resolved);
 
@@ -155,17 +159,27 @@ export function resolveLewdChannels(input: LewdChannelsInput): LewdMoveResult {
     recvPhysio *= T.proactive.coldPushRecipientPhysioMult;
   }
 
+  // Readiness / multi-channel fatigue seed **psych** only (reluctant / overload).
+  const flatFeeScale = Math.max(0.05, holdSeconds / T.defaultHoldSeconds);
   const fatigueFlat =
     channels.length > 1
-      ? T.channels.multiChannelFatiguePerExtra * 12 * (channels.length - 1)
+      ? T.channels.multiChannelFatiguePerExtra *
+        12 *
+        (channels.length - 1) *
+        flatFeeScale
       : 0;
-  const seededDiscomfort = Math.min(
+  const psychSeed =
+    merge.readinessDiscomfortFlat * flatFeeScale + fatigueFlat;
+  const seededPhys = encounter.discomfortPhys ?? 0;
+  const seededPsych = Math.min(
     100,
-    encounter.discomfort + fatigueFlat + merge.readinessDiscomfortFlat
+    (encounter.discomfortPsych ?? encounter.discomfort ?? 0) + psychSeed
   );
   const seeded = {
     ...encounter,
-    discomfort: seededDiscomfort,
+    discomfortPhys: seededPhys,
+    discomfortPsych: seededPsych,
+    discomfort: Math.max(seededPhys, seededPsych),
   };
 
   const allowGains = merge.intimacyAllowed && !merge.arousalHardBlocked;
@@ -180,20 +194,43 @@ export function resolveLewdChannels(input: LewdChannelsInput): LewdMoveResult {
   const cycleRecv = recvBodily
     ? encounterCycleReceptivityMult(recvBodily.fertileCrest01)
     : 1;
-  // Seed encounter receptivity with cycle crest without fighting climax compounding.
   const seededWithCycle = {
     ...seeded,
     receptivity: Math.max(seeded.receptivity, cycleRecv),
   };
+
+  const bondEdge = relationships
+    ? getEdge(relationships, recipient.id, proactive.id)
+    : null;
+  const bond = bondFromEdge(bondEdge);
+  const painPsychShare = painPsychShareFromContext({
+    bond,
+    arousal: encounter.arousal,
+    recipient,
+    softUnready: merge.arousalSoftUnready,
+    hardUnready: merge.arousalHardBlocked,
+  });
+  const painPhysPerSec =
+    allowGains && merge.pain > 0
+      ? painPhysRateFromAction({
+          pain: merge.pain,
+          intensity: merge.painIntensity || 5,
+          recipient,
+        })
+      : 0;
 
   const next = updateEncounterArousal(seededWithCycle, {
     psychQuality: allowGains ? recvPsych : 0,
     physioQuality: allowGains ? recvPhysio : 0,
     erogenous: merge.erogenous,
     deltaT: Math.max(0.5, holdSeconds),
+    sex: recipient.sex,
     overstep: allowGains && merge.overstep,
     overstepSeverity: merge.overstepSeverity,
     violation: merge.violation || merge.arousalHardBlocked,
+    painPhysPerSec,
+    painPsychShare,
+    overstepPsychBoost: merge.arousalSoftUnready ? 1.2 : 1,
   });
 
   const genitalPlay = channels.some((ch) =>
@@ -209,6 +246,7 @@ export function resolveLewdChannels(input: LewdChannelsInput): LewdMoveResult {
     physioQuality: giver.physioQuality,
     erogenous: giver.erogenous,
     deltaT: Math.max(0.5, holdSeconds),
+    sex: proactive.sex,
     overstep: false,
     violation: giver.pushReadiness === 'hardUnready' && merge.intimacyRequired > 40,
   });
@@ -249,6 +287,7 @@ export function resolveLewdChannels(input: LewdChannelsInput): LewdMoveResult {
 
   const band = bandOutcome(merge.primaryStim, {
     intimacyBlocked: merge.violation,
+    clothingBlocked: merge.clothingBlocked,
     arousalHardBlocked: merge.arousalHardBlocked,
     arousalSoftUnready:
       merge.arousalSoftUnready || giver.pushReadiness === 'softUnready',
@@ -291,15 +330,21 @@ export function resolveLewdChannels(input: LewdChannelsInput): LewdMoveResult {
       arousal: next.arousal,
       edge: next.edge,
       discomfort: next.discomfort,
+      discomfortPhys: next.discomfortPhys,
+      discomfortPsych: next.discomfortPsych,
       climaxCount: next.climaxCount,
       receptivity: next.receptivity,
+      refractorySecondsRemaining: next.refractorySecondsRemaining,
     },
     proactiveEncounter: {
       arousal: nextProactive.arousal,
       edge: nextProactive.edge,
       discomfort: nextProactive.discomfort,
+      discomfortPhys: nextProactive.discomfortPhys,
+      discomfortPsych: nextProactive.discomfortPsych,
       climaxCount: nextProactive.climaxCount,
       receptivity: nextProactive.receptivity,
+      refractorySecondsRemaining: nextProactive.refractorySecondsRemaining,
     },
     climaxed: next.climaxed,
     proactiveClimaxed: nextProactive.climaxed,

@@ -23,6 +23,8 @@ export const ITEM_TEMPLATES: Record<string, ItemTemplate> = {
     slot: 'shirt',
     description: 'A practical linen tunic worn under or without plate.',
     material: 'cloth',
+    garmentLength: 'tunic',
+    sleeveStyle: 'long',
     maxDurability: 1,
   },
   'leather-belt': {
@@ -130,6 +132,8 @@ export const ITEM_TEMPLATES: Record<string, ItemTemplate> = {
     slot: 'shirt',
     description: 'A fashionable and well-tailored linen tunic, the color of sand.',
     material: 'cloth',
+    garmentLength: 'tunic',
+    sleeveStyle: 'long',
     maxDurability: 1,
   },
   'fine-linen-undershirt': {
@@ -202,6 +206,8 @@ export const ITEM_TEMPLATES: Record<string, ItemTemplate> = {
     slot: 'shirt',
     description: 'A finely made tunic of the plains.',
     material: 'cloth',
+    garmentLength: 'tunic',
+    sleeveStyle: 'short',
     maxDurability: 1,
   },
   'linen-breastcloth': {
@@ -295,9 +301,10 @@ export const ITEM_TEMPLATES: Record<string, ItemTemplate> = {
     itemType: 'armor',
     slot: 'shirt',
     description:
-      'A light, form-fitting layer of pure white linen cloth with lavender trim. Long hem — a clerical dress/robe that covers through the lower legs.',
+      'A light, form-fitting layer of pure white linen cloth with lavender trim. Long hem — a sleeveless clerical dress/robe that covers through the lower legs.',
     material: 'cloth',
     garmentLength: 'long',
+    sleeveStyle: 'none',
     maxDurability: 1,
   },
   'cotton-chemise': {
@@ -421,9 +428,10 @@ export const ITEM_TEMPLATES: Record<string, ItemTemplate> = {
     itemType: 'armor',
     slot: 'shirt',
     description:
-      'A thick white woolen tunic cut short — hangs to mid-thigh like a riding dress, legs otherwise bare.',
+      'A thick white woolen tunic cut short — short sleeves, hangs to mid-thigh like a riding dress, legs otherwise bare.',
     material: 'cloth',
     garmentLength: 'short',
+    sleeveStyle: 'short',
     maxDurability: 1,
   },
   'ilian-linen-breastcloth': {
@@ -691,8 +699,32 @@ export const ITEM_TEMPLATES: Record<string, ItemTemplate> = {
     name: 'Caelin Steel Heater',
     itemType: 'shield',
     slot: 'offhand',
+    shieldType: 'heater',
     description: 'A heater shield bearing Caelin colors.',
     material: 'highGradeSteel',
+    maxDurability: 1,
+  },
+
+  // —— Wound care consumables (owned bank; never equipped) ——
+  // slot is a catalog placeholder only — instances stay unequipped-owned.
+  'field-bandage': {
+    templateId: 'field-bandage',
+    name: 'Field Bandage',
+    itemType: 'consumable',
+    slot: 'trinket2',
+    description:
+      'Clean linen wrap. Strong clotting aid; mild boost to natural wound recovery.',
+    material: 'cloth',
+    maxDurability: 1,
+  },
+  'vulnerary-salve': {
+    templateId: 'vulnerary-salve',
+    name: 'Vulnerary Salve',
+    itemType: 'consumable',
+    slot: 'trinket2',
+    description:
+      'Herbal salve. Rapidly accelerates natural healing and helps wounds clot.',
+    material: 'cloth',
     maxDurability: 1,
   },
 };

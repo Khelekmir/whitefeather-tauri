@@ -168,11 +168,21 @@ const STARTER_WEAR: Record<CombatCastId, SlotWearMap> = {
 
 export interface CharacterInventoryKit {
   unitId: CombatCastId;
-  /** All owned instances (currently all equipped). */
+  /**
+   * Owned instance bank (equipped + unequipped-owned).
+   * Starters begin fully equipped; `equipGear` can leave items here with
+   * `equippedSlot: null` until re-equipped or discarded.
+   */
   items: Record<string, Item>;
   /** Slot → instance id */
   equipment: EquipmentLoadout;
 }
+
+/** Unequipped care stock every cast starts with (consumed on use). */
+const STARTER_CARE: { templateId: string; count: number }[] = [
+  { templateId: 'field-bandage', count: 2 },
+  { templateId: 'vulnerary-salve', count: 1 },
+];
 
 function buildKit(unitId: CombatCastId): CharacterInventoryKit {
   const map = STARTER_LOADOUTS[unitId];
@@ -202,6 +212,17 @@ function buildKit(unitId: CombatCastId): CharacterInventoryKit {
     });
     items[instanceId] = item;
     equipPatch[slot] = instanceId;
+  }
+
+  for (const { templateId, count } of STARTER_CARE) {
+    for (let i = 0; i < count; i += 1) {
+      const instanceId = `${unitId}__care_${templateId}_${i + 1}`;
+      items[instanceId] = createItemFromTemplate(templateId, {
+        id: instanceId,
+        ownerId: unitId,
+        equippedSlot: null,
+      });
+    }
   }
 
   return {

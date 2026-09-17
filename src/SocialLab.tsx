@@ -40,10 +40,9 @@ import {
 } from './utils/lewd/conception';
 import {
   advanceFluidSoil,
-  batheClearSkinSoil,
   deriveSoilCues,
-  launderUnderwear,
 } from './utils/lewd/fluidSoil';
+import { resolveSocialTask } from './utils/social/resolveSocialTask';
 import { advanceStandingLust, standingLustTarget } from './utils/lewd/lustDrive';
 import {
   advanceFemalePhysiology,
@@ -449,8 +448,9 @@ function TasksPanel({
         Tasks, actions &amp; events
       </h2>
       <p style={{ margin: '0 0 12px', fontSize: 12, opacity: 0.65 }}>
-        Working title. Shared activities that can shift relationships without being erotic —
-        camp labor, watches, scouting, etc. Outcomes are stubbed.
+        Shared activities that write short-term residue and pressures. Laundry, bathe,
+        watch, cook, and tend wounds are live; other catalog rows still stub. Pass Time
+        crystallizes ST → LT.
       </p>
 
       <div
@@ -503,6 +503,10 @@ function TasksPanel({
             <span style={{ opacity: 0.5 }}>
               {' '}
               · catalog {task.minParticipants}–{task.maxParticipants}
+              {task.timeCostMinutes != null
+                ? ` · ~${task.timeCostMinutes} min`
+                : ''}
+              {task.requiresPartner ? ' · needs partner' : ''}
             </span>
           </div>
           <div style={{ marginBottom: 12 }}>
@@ -510,9 +514,22 @@ function TasksPanel({
               <Pill key={e}>{e}</Pill>
             ))}
           </div>
-          <button type="button" style={smallBtn} onClick={onRunTask}>
-            Run stub event
+          <button
+            type="button"
+            style={{
+              ...smallBtn,
+              opacity: task.requiresPartner && !partner ? 0.45 : 1,
+            }}
+            disabled={!!task.requiresPartner && !partner}
+            onClick={onRunTask}
+          >
+            Run task
           </button>
+          {task.requiresPartner && !partner ? (
+            <p style={{ margin: '8px 0 0', fontSize: 11, color: '#fcd34d' }}>
+              Pick a partner to run this task.
+            </p>
+          ) : null}
         </div>
       </div>
 
@@ -963,84 +980,16 @@ function SocialLab() {
 
   const onRunTask = () => {
     if (!primary) return;
-    const task =
-      SOCIAL_TASK_TEMPLATES.find((t) => t.id === taskId) ?? SOCIAL_TASK_TEMPLATES[0];
-    const names = partner
-      ? `${primary.name} + ${partner.name}`
-      : primary.name;
-
-    if (task.id === 'do_laundry') {
-      const before = deriveSoilCues(primary);
-      const cleaned = launderUnderwear(primary);
-      setPrimary(cleaned);
-      const after = deriveSoilCues(cleaned);
-      pushTaskLog(
-        `${primary.name} laundry: ${before.summary} → ${after.summary}`
-      );
-      if (partner) {
-        setRelGraph((prev) => {
-          let g = ensureBidirectional(prev, partner, primary);
-          g = nudgeShortTerm(g, primary, partner, 'gratitude', 14);
-          g = nudgeShortTerm(g, partner, primary, 'warmth', 8);
-          return g;
-        });
-        pushTaskLog(`${primary.name}→${partner.name}: gratitude/warmth from shared wash.`);
-      }
-      return;
-    }
-
-    if (task.id === 'bathe' || task.id === 'bathe_together') {
-      let nextPrimary = batheClearSkinSoil(primary);
-      // Soft shame relief when washing off blood/semen urgency
-      const shame = Math.max(0, (nextPrimary.socialStats.dynamic.shame ?? 0) - 4);
-      nextPrimary = {
-        ...nextPrimary,
-        socialStats: {
-          ...nextPrimary.socialStats,
-          dynamic: { ...nextPrimary.socialStats.dynamic, shame },
-        },
-      };
-      setPrimary(nextPrimary);
-      pushTaskLog(
-        `${primary.name} bathes — skin soil cleared · ${deriveSoilCues(nextPrimary).summary}`
-      );
-      if (task.id === 'bathe_together' && partner) {
-        const nextPartner = batheClearSkinSoil(partner);
-        setPartner(nextPartner);
-        setRelGraph((prev) => {
-          let g = ensureBidirectional(prev, primary, partner);
-          g = nudgeShortTerm(g, primary, partner, 'warmth', 16);
-          g = nudgeShortTerm(g, partner, primary, 'warmth', 16);
-          if (sexualDesireAllowed(primary, partner)) {
-            g = nudgeShortTerm(g, primary, partner, 'desireHeat', 10);
-          }
-          if (sexualDesireAllowed(partner, primary)) {
-            g = nudgeShortTerm(g, partner, primary, 'desireHeat', 10);
-          }
-          return g;
-        });
-        pushTaskLog(`Bathe together: ${names} warmth up; desireHeat if attraction allows.`);
-      }
-      return;
-    }
-
-    pushTaskLog(
-      `Stub: “${task.label}” with ${names}. Effects TBD (${task.stubEffects.join(', ')}).`
-    );
-    // Tiny lab feedback: shared work nudges mutual short-term warmth + tiny familiarity
-    if (partner) {
-      setRelGraph((prev) => {
-        let g = ensureBidirectional(prev, primary, partner);
-        g = nudgeShortTerm(g, primary, partner, 'warmth', 12);
-        g = nudgeShortTerm(g, partner, primary, 'warmth', 12);
-        g = nudgeLongTerm(g, primary, partner, 'familiarity', 2);
-        g = nudgeLongTerm(g, partner, primary, 'familiarity', 2);
-        return g;
-      });
-      pushTaskLog(
-        `Dev nudge: ${primary.name}↔${partner.name} warmth +12 (both ways), familiarity +2.`
-      );
-    }
+    const result = resolveSocialTask({
+      taskId,
+      primary,
+      partner,
+      relationships: relGraph,
+    });
+    setPrimary(result.primary);
+    if (result.partner) setPartner(result.partner);
+    setRelGraph(result.relationships);
+    for (const line of result.log) pushTaskLog(line);
   };
 
   const onSetLongTermAxis = (

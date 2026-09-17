@@ -14,6 +14,12 @@ export const LEWD_TUNING = {
   overstepAbovePreferred: 1.5,
 
   /**
+   * Combat bruise → intimacy: full bruise (1.0) subtracts this many
+   * preferred-intensity ranks on the mapped body region.
+   */
+  bruisePrefIntensityPenalty: 3,
+
+  /**
    * Erogenous ranking from catalog sensitivity.
    * Neck ~4.5 → low rank; lips ~6.5 → modest; clit/glans ~9.5+ → near 1.
    */
@@ -64,7 +70,9 @@ export const LEWD_TUNING = {
   },
 
   /**
-   * Deep acts require enough arousal (readiness). Derived from action + target intimacy.
+   * Deep acts require enough arousal (readiness). Derived from action + target intimacy,
+   * then clamped to the target’s erogenous soft-cap − softSlack so an act cannot
+   * demand more meter than that zone can sustain (e.g. tongue-kiss on mouth).
    */
   arousalGate: {
     /** Action intimacy at or below this needs no arousal. */
@@ -83,9 +91,12 @@ export const LEWD_TUNING = {
     softSlack: 10,
     /** Psych/physio multiplier when soft-unready. */
     softUnreadyQualityMult: 0.35,
-    /** Flat discomfort when forcing a soft-unready deep act. */
+    /**
+     * Flat **psych** discomfort fees authored for a full ~defaultHoldSeconds perform.
+     * Resolve scales by holdSeconds/defaultHold so 1s steps don’t 8×-stack.
+     */
     softUnreadyDiscomfort: 14,
-    /** Flat discomfort when hard-blocked attempt still “happens” as violation. */
+    /** Flat psych discomfort when hard-blocked attempt still “happens” as violation. */
     hardUnreadyDiscomfort: 20,
     /**
      * Post-orgasm gate credit (Option 2): meter can drop, but climaxCount /
@@ -119,15 +130,55 @@ export const LEWD_TUNING = {
     edgeGainPerSec: 6.2,
     edgeDecayPerSec: 1.35,
 
+    /**
+     * Male post-orgasm refractory (seconds of encounter time).
+     * Blocks new edge accrual and further climax; arousal may still rise.
+     * Females are unaffected (no refractory write).
+     */
+    refractory: {
+      /** Duration after first climax this encounter. */
+      baseSeconds: 28,
+      /** Added per prior climax (2nd orgasm harder to chain quickly). */
+      perPriorClimaxExtraSeconds: 10,
+      maxSeconds: 75,
+      /** Edge falls faster while refractory. */
+      edgeDecayMult: 1.65,
+    },
+
+    /**
+     * Dual discomfort (Option A):
+     * - Phys: nociception / sting / overstep force
+     * - Psych: reluctance, unready push, violation, cold pain
+     * Soft-block edge/climax is **mind-primary** (psych soft cap).
+     * Ruin if **either** track hits its hard cap.
+     */
     discomfortOverstepPerSec: 6.5,
+    /**
+     * Authored for one defaultHoldSeconds resolve; scaled by dt/defaultHold
+     * inside updateEncounterArousal so real-time 1s steps don’t explode.
+     * Goes to **psych** (trust/consent bruise), not body sting.
+     */
     discomfortViolationFlat: 22,
+    /** Phys decays faster at rest than psych. */
+    discomfortPhysDecayPerSec: 1.8,
+    discomfortPsychDecayPerSec: 1.0,
+    /** @deprecated use phys/psych decay — kept as alias for idle paths */
     discomfortDecayPerSec: 1.4,
 
     climaxEdgeThreshold: 88,
     /** Each prior climax this encounter lowers the edge threshold slightly. */
     climaxEdgeThresholdPerPrior: 4.5,
     climaxEdgeThresholdFloor: 68,
+    /**
+     * Mind soft-cap: psych above this blocks edge accrual and climax
+     * (reluctant path). Phys does not soft-block — good pain can still finish.
+     */
+    discomfortPsychSoftCap: 45,
+    /** @deprecated alias — soft-block uses psych soft cap */
     discomfortSoftCap: 45,
+    discomfortPhysHardCap: 78,
+    discomfortPsychHardCap: 78,
+    /** @deprecated alias — ruin if either hard cap hit */
     discomfortHardCap: 78,
 
     /** Base arousal drop on climax; further climaxes drop less (more wrecked/open). */
@@ -135,6 +186,10 @@ export const LEWD_TUNING = {
     climaxArousalDropPerPrior: 6,
     climaxArousalDropFloor: 14,
     climaxEdgeReset: 12,
+    /** Release: mind eases more than body sting. */
+    climaxDiscomfortPsychRelief: 12,
+    climaxDiscomfortPhysRelief: 5,
+    /** @deprecated split relief — prefer phys/psych */
     climaxDiscomfortRelief: 10,
     /** After climax, leave a higher arousal floor so they stay heated. */
     climaxAfterglowFloor: 22,
@@ -150,7 +205,35 @@ export const LEWD_TUNING = {
     receptivityIdleDecayPerSec: 0.012,
 
     overstepQualityMult: 0.4,
+    /** Damp weights for dual tracks (pleasure/edge). */
+    discomfortDampPhysK: 1.1,
+    discomfortDampPsychK: 1.8,
+    /** @deprecated use dampPhys/Psych */
     discomfortDampK: 1.6,
+
+    /**
+     * Catalog action.pain → phys rate at intensity 5, tolerance 5.
+     * Higher intensity / lower tolerance scales up.
+     */
+    painPhysPerSecAtRef: 4.2,
+    /**
+     * Fraction of overstep phys chip that also writes psych when bond is cold
+     * / unready (warm bond + appetite suppresses this).
+     */
+    overstepPsychShare: 0.35,
+  },
+
+  /**
+   * How bond / arousal / painAppetite turn physical pain into mind strain.
+   * psychShare ≈ (1 − appetite) × (1 − bondWarm) × (1 − arousalEase).
+   */
+  painPsych: {
+    appetiteWeight: 0.7,
+    bondWarmWeight: 0.85,
+    arousalEaseWeight: 0.35,
+    /** Floor/ceiling on psych share of a pain chip. */
+    shareMin: 0.02,
+    shareMax: 1.15,
   },
 
   /**
@@ -204,6 +287,25 @@ export const LEWD_TUNING = {
     orientationResistancePsychPenalty: 0.55,
     /** Extra intimacy-budget tax while orientation-resistant (stranger-to-sapphic feel). */
     orientationResistanceBudgetTax: 18,
+  },
+
+  /**
+   * Clothing barriers for lewd contact (over / under / displace).
+   * Soft layers attenuate physio and ease intimacy requirement; hard armor blocks skin/orifice.
+   */
+  clothing: {
+    /** Physio quality mult loss at softBarrier01 = 1 (through full soft stack). */
+    stimPenaltyAtFullSoft: 0.55,
+    /** Intimacy-required reduction at softBarrier01 = 1 (over-cloth is less “intimate”). */
+    intimacyReliefAtFullSoft: 0.35,
+    /** Soft coverage below this counts as clear for that layer. */
+    clearEpsilon: 0.08,
+    /** Hard armor with effective coverage ≥ this blocks skin/orifice. */
+    hardBlockEpsilon: 0.12,
+    /** Displace amount when pushing cloth aside (0–1). */
+    displaceAmount: 1,
+    /** Outer soft slots skipped in `under` access mode. */
+    underSkipSlots: ['shirt', 'back', 'leg'] as const,
   },
 
   /**

@@ -3,6 +3,7 @@ import type {
   CoverageMap,
   FootwearLengthPreset,
   GarmentLengthPreset,
+  GarmentSleevePreset,
   HeadwearStyle,
   ItemSlot,
 } from '../../types/items';
@@ -12,6 +13,7 @@ export type {
   CoverageMap,
   FootwearLengthPreset,
   GarmentLengthPreset,
+  GarmentSleevePreset,
   HeadwearStyle,
 };
 
@@ -52,7 +54,8 @@ const GARMENT_TORSO: CoverageMap = {
 };
 
 /**
- * Dress / robe / tunic hang length for the **shirt** slot.
+ * Dress / robe / tunic hang length for the **shirt** slot (hem only — no arms).
+ * Sleeve cut is a separate axis: see GARMENT_SLEEVE_COVERAGE / sleeveStyle.
  *
  * - tunic: standard shirt — torso (+ light hip), no thigh coverage
  * - short: mid-thigh dress (Florina) — hips + thighs, stops above the knee
@@ -118,6 +121,31 @@ export const GARMENT_LENGTH_COVERAGE: Record<GarmentLengthPreset, CoverageMap> =
     lowerLegRight: 0.95,
     footLeft: 0.55,
     footRight: 0.55,
+  },
+};
+
+/**
+ * Shirt-slot sleeve cut — merged with garmentLength in resolve.
+ *
+ * - none: sleeveless (Serra) — empty map
+ * - short: Florina / Lyn — shoulders lightly, upper arms
+ * - long: Amberyl tunic — through forearms
+ */
+export const GARMENT_SLEEVE_COVERAGE: Record<GarmentSleevePreset, CoverageMap> = {
+  none: {},
+  short: {
+    shoulderLeft: 0.35,
+    shoulderRight: 0.35,
+    upperArmLeft: 0.85,
+    upperArmRight: 0.85,
+  },
+  long: {
+    shoulderLeft: 0.55,
+    shoulderRight: 0.55,
+    upperArmLeft: 1,
+    upperArmRight: 1,
+    lowerArmLeft: 0.9,
+    lowerArmRight: 0.9,
   },
 };
 

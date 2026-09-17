@@ -1,6 +1,10 @@
 /**
- * Scaffold data for the Social lab — not the final simulation model.
- * Tasks / moods / relationship axes will grow into real systems later.
+ * Social task catalog for the Social lab.
+ * One list for now (chores / talk / leisure / camp / travel) — split Task /
+ * Action / Event catalogs later when schedules need different fields.
+ *
+ * Real effect math lives in `utils/social/resolveSocialTask.ts`.
+ * `stubEffects` remain human blurbs for the UI.
  */
 
 /** Mood presets for lab interaction (subset of story mood notes). */
@@ -23,7 +27,7 @@ export type SocialLabMood = (typeof SOCIAL_LAB_MOODS)[number];
 
 export type SocialTaskKind = 'chore' | 'camp' | 'travel' | 'talk' | 'leisure';
 
-/** Working-title catalog: tasks / actions / events characters can share. */
+/** Working catalog: tasks / actions / events characters can share. */
 export interface SocialTaskTemplate {
   id: string;
   label: string;
@@ -33,7 +37,11 @@ export interface SocialTaskTemplate {
   /** Suggested participant count (lab still allows primary+partner). */
   minParticipants: number;
   maxParticipants: number;
-  /** Placeholder outcome tags — not wired to real math yet. */
+  /** Soft time cost for UI / future Pass Time coupling (not auto-run yet). */
+  timeCostMinutes?: number;
+  /** Soft-fail in resolver when partner is missing. */
+  requiresPartner?: boolean;
+  /** Human outcome tags — real math is in resolveSocialTask handlers. */
   stubEffects: string[];
 }
 
@@ -45,6 +53,7 @@ export const SOCIAL_TASK_TEMPLATES: SocialTaskTemplate[] = [
     blurb: 'Collect deadfall and split kindling for the night’s fire.',
     minParticipants: 1,
     maxParticipants: 3,
+    timeCostMinutes: 45,
     stubEffects: ['+rapport (shared work)', '−fatigue optional', 'camp readiness'],
   },
   {
@@ -54,6 +63,8 @@ export const SOCIAL_TASK_TEMPLATES: SocialTaskTemplate[] = [
     blurb: 'Pack tents, douse coals, load the caravan.',
     minParticipants: 2,
     maxParticipants: 6,
+    timeCostMinutes: 60,
+    requiresPartner: true,
     stubEffects: ['+unit cohesion', 'time cost', 'stress if rushed'],
   },
   {
@@ -63,6 +74,8 @@ export const SOCIAL_TASK_TEMPLATES: SocialTaskTemplate[] = [
     blurb: 'Choose ground, raise shelters, dig a fire pit.',
     minParticipants: 2,
     maxParticipants: 6,
+    timeCostMinutes: 90,
+    requiresPartner: true,
     stubEffects: ['+safety', '+comfort', 'personality clashes possible'],
   },
   {
@@ -72,6 +85,7 @@ export const SOCIAL_TASK_TEMPLATES: SocialTaskTemplate[] = [
     blurb: 'Walk the next stretch and report hazards.',
     minParticipants: 1,
     maxParticipants: 2,
+    timeCostMinutes: 40,
     stubEffects: ['+trust if reliable', 'injury risk stub', 'map intel'],
   },
   {
@@ -81,6 +95,8 @@ export const SOCIAL_TASK_TEMPLATES: SocialTaskTemplate[] = [
     blurb: 'Keep the fire and talk quietly while others sleep.',
     minParticipants: 2,
     maxParticipants: 2,
+    timeCostMinutes: 120,
+    requiresPartner: true,
     stubEffects: ['+intimacy (non-erotic)', 'mood sync', 'secret chance'],
   },
   {
@@ -90,6 +106,7 @@ export const SOCIAL_TASK_TEMPLATES: SocialTaskTemplate[] = [
     blurb: 'Prepare supper from stores and forage.',
     minParticipants: 1,
     maxParticipants: 4,
+    timeCostMinutes: 50,
     stubEffects: ['+happiness', '+relationship', 'food quality stub'],
   },
   {
@@ -99,6 +116,8 @@ export const SOCIAL_TASK_TEMPLATES: SocialTaskTemplate[] = [
     blurb: 'Clean and dress injuries after a scrap.',
     minParticipants: 2,
     maxParticipants: 2,
+    timeCostMinutes: 25,
+    requiresPartner: true,
     stubEffects: ['+gratitude', '−stress (patient)', 'skill check stub'],
   },
   {
@@ -108,6 +127,7 @@ export const SOCIAL_TASK_TEMPLATES: SocialTaskTemplate[] = [
     blurb: 'Wash soiled underthings and cloth — blood, seed, and travel grime.',
     minParticipants: 1,
     maxParticipants: 2,
+    timeCostMinutes: 35,
     stubEffects: [
       'clear underwear soil',
       '+gratitude if washed for another',
@@ -121,6 +141,7 @@ export const SOCIAL_TASK_TEMPLATES: SocialTaskTemplate[] = [
     blurb: 'Wash the body clean; rinse crotch soil and camp dust.',
     minParticipants: 1,
     maxParticipants: 1,
+    timeCostMinutes: 20,
     stubEffects: ['clear skin crotchSoil', '−wantsBath', '−stress soft'],
   },
   {
@@ -130,6 +151,8 @@ export const SOCIAL_TASK_TEMPLATES: SocialTaskTemplate[] = [
     blurb: 'Share water and wash — practical, intimate, or both.',
     minParticipants: 2,
     maxParticipants: 2,
+    timeCostMinutes: 30,
+    requiresPartner: true,
     stubEffects: [
       'clear skin soil (both)',
       '+warmth',
@@ -138,3 +161,6 @@ export const SOCIAL_TASK_TEMPLATES: SocialTaskTemplate[] = [
   },
 ];
 
+export function getSocialTaskTemplate(id: string): SocialTaskTemplate | undefined {
+  return SOCIAL_TASK_TEMPLATES.find((t) => t.id === id);
+}

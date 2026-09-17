@@ -8,7 +8,7 @@ Combat coverage for armor is resolved in `utils/items/resolveItem.ts` (`getTempl
 2. Style / length fields on the template:
    - `underwearStyle` / `undershirtStyle`
    - `headwearStyle`
-   - `garmentLength` (shirt-slot dresses/robes/tunics)
+   - `garmentLength` + optional `sleeveStyle` (shirt-slot hem × sleeves)
    - `footwearLength` (foot-slot boots/shoes)
    - `sizePreset` (chest-slot plate size: small / medium / large)
 3. **`DEFAULT_SLOT_COVERAGE[slot]`** — neutral fallback if nothing else is set
@@ -22,6 +22,7 @@ Use a style field when many items share the same cut:
 ```ts
 headwearStyle: 'halfHelm'
 garmentLength: 'long'
+sleeveStyle: 'none'       // orthogonal to hem
 footwearLength: 'riding'
 underwearStyle: 'modestPanty'
 sizePreset: 'large'   // chest only
@@ -32,10 +33,25 @@ Examples of shared tables:
 | Field | Presets (examples) |
 |--------|---------------------|
 | `headwearStyle` | `fullHelmet`, `halfHelm`, `hat`, `hairOrnament` |
-| `garmentLength` | `tunic`, `short`, `long`, `full` |
+| `garmentLength` | `tunic`, `short`, `long`, `full` (hem / hang only) |
+| `sleeveStyle` | `none`, `short`, `long` (arms; merged with hem) |
 | `footwearLength` | `slipper`, `shoe`, `boot`, `kneeHigh`, `riding` |
 | `sizePreset` | `small`, `medium`, `large` (breastplates) |
 | `underwearStyle` / `undershirtStyle` | sex-split panties, slips, bras, etc. |
+
+### Hem × sleeves (shirt slot)
+
+`garmentLength` and `sleeveStyle` are **orthogonal**. Resolve merges
+`GARMENT_LENGTH_COVERAGE[length]` with `GARMENT_SLEEVE_COVERAGE[sleeves]`.
+
+| Piece | Hem | Sleeves |
+|-------|-----|---------|
+| Amberyl linen tunic | `tunic` | `long` |
+| Florina Ilian wool tunic | `short` | `short` |
+| Lyn Sacaen tunic | `tunic` | `short` |
+| Serra fine linen dress | `long` | `none` |
+
+Omit `sleeveStyle` (or set `none`) for sleeveless cuts. Arm layers include `shirt` so sleeves can mitigate / take panel wear when coverage &gt; 0; sleeveless maps contribute no arm keys.
 
 Hair ornaments (e.g. Serra’s Silk Twintail Ties) use `hairOrnament`: **negligible** combat coverage; equip value is for flags / lewd / presentation later.
 
@@ -84,6 +100,8 @@ Keys in a coverage map are `BodyPartId` values (e.g. `stomachUpper`, `thighOuter
 
 So a long dress (`garmentLength: 'long'` on `shirt`) can cover thighs only because `shirt` is listed on thigh layers *and* the long preset sets thigh coverage above 0. A normal tunic does not.
 
+Likewise, long sleeves protect forearms only because `shirt` is on `lowerArm*` layers *and* `sleeveStyle: 'long'` sets those keys; Serra’s `sleeveStyle: 'none'` does not.
+
 ## Related files
 
 - Templates: `itemTemplates.ts`
@@ -95,20 +113,69 @@ So a long dress (`garmentLength: 'long'` on `shirt`) can cover thighs only becau
 
 ## Instance durability (wear & tear)
 
-**Templates** stay pristine (`maxDurability`). **Instances** hold current `durability`.
+**Templates** stay pristine (`maxDurability`). **Armor instances** hold:
 
-Spawn with wear via `createItemFromTemplate`:
+1. **`panelDurability`** — sparse map of remaining integrity per covered `BodyPartId`
+2. **`durability`** — coverage-weighted summary of those panels (UI / compat bars)
+
+Weapons keep a scalar only. **Shields do not use panel durability yet** (deferred).
+
+### Panel durability (armor)
+
+Coverage keys define which areas a garment covers. On spawn (`createItemFromTemplate`):
+
+- Every part with `coverage[part] > 0` gets a panel at `maxDurability`
+- Partial coverage (e.g. tunic `hipLeft: 0.35`) still starts at full panel max; the **0.35** scales **future** wear and mitigation, not initial integrity
+- Scalar `durability` = coverage-weighted average of panel fractions
+
+Helpers: `../../utils/items/panelDurability.ts` (`initPanelDurability`, `deriveItemDurability`, …).
+
+Example — Amberyl linen tunic (`garmentLength: 'tunic'`):
+
+| Part | Coverage | Initial panel |
+|------|----------|---------------|
+| chest L/R, stomach upper/lower, oblique L/R | 1.0 | full |
+| hip L/R | 0.35 | full |
+
+A future hit on `chestRight` wears only that panel (×1.0). A hip graze wears the hip panel ×0.35. Zeroing one panel must **not** shred the whole tunic.
+
+### Spawn / starter wear
 
 ```ts
 createItemFromTemplate('caelin-breastplate', {
   id: 'unit_kent__chest',
   ownerId: 'unit_kent',
   equippedSlot: 'chest',
-  durability: 0.78, // 78% of max left — combat / travel wear
+  durability: 0.78, // legacy: spreads 78% across all panels evenly
 });
-// omit durability → defaults to template.maxDurability (full)
+// or uneven: panelWear: { chestRight: 0.4, chestLeft: 1 }
+// omit → full panels + derived scalar at max
 ```
 
-Starter kits apply this in `../starters/combatCastInventory.ts` through `STARTER_WEAR`: a per-character map of slot → remaining fraction (0–1), multiplied by `maxDurability` when building the kit.
+Starter kits (`../starters/combatCastInventory.ts` / `STARTER_WEAR`) still pass a scalar fraction; armor spawn spreads it across panels.
 
-The detail page durability bar reads `instance.durability / instance.maxDurability`.
+The detail page durability bar reads derived `instance.durability / instance.maxDurability`, and lists per-panel integrity for armor.
+
+### Combat apply + mitigation (wired)
+
+| Step | Behavior |
+|------|----------|
+| **Wear** | `resolveBasicAttack` → `calcArmorDurabilityLoss` (base) × `coverage[hitPart]` applied to that panel only via `applyArmorPanelHitWear`; derived scalar refreshed. Soft-outfit “ruined” = **hit panel** hit 0, not the whole piece. |
+| **Mitigate** | `calcCombatDamage` uses `getArmorMitigationFraction(item, hitPart)` — a shredded `chestRight` panel no longer protects `chestRight`; other panels on the same garment still can. |
+
+### Bleed → cloth soil (wired on Pass Time)
+
+Active bleeds soil covering garments during `tickBleed` (not on the striking hit):
+
+- Flow = `bleedRate × minutes × bleedSoilPerRateMinute`
+- Layers visited **innermost first**; each sticks `flow × coverage × absorb` (soft &gt; hard)
+- Remainder × `bleedSoilBleedThrough` continues outward
+- Written to `item.lewdStats.soiled.blood` (wet channel)
+
+### Still deferred
+
+| Phase | Work |
+|-------|------|
+| **Shields** | Separate schema later — not panel/coverage durability. |
+| **Rust save** | Tauri/`src-tauri` item serde is **not** on the live path for recent armor/character work; add `panel_durability` when that save loop is revived. |
+| **Dry-all-layers** | Pass Time currently dries underwear in lewd paths; combat tick soils any layer but full multi-slot dry/laundry UX is still expanding. |

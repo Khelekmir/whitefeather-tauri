@@ -1,11 +1,13 @@
-import { useEffect, useState, type CSSProperties } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   getDetailedCharacter,
   listDetailedCharacters,
 } from './data/detailedPlaceholderCharacters';
+import { getCombatCastInventory } from './data/starters/combatCastInventory';
 import { filterLewdAdults } from './data/social/castAdult';
 import { buildCastRelationshipGraph } from './data/social/castRelationshipSeeds';
+import type { Item } from './types/items';
 import type {
   LongTermRelationshipId,
   ShortTermRelationshipId,
@@ -65,17 +67,65 @@ import {
   wrapCycleHour,
 } from './utils/lewd/ovulationCycle';
 import { resolveLewdChannels } from './utils/lewd/resolveLewdMove';
+import { expandPreload } from './utils/lewd/expandPreload';
+import {
+  clothingBarrierForLewdTarget,
+  resetGarmentDisplace,
+  type ClothingAccessMode,
+} from './utils/lewd/clothingAccess';
+import {
+  equipItem,
+  listEquipped,
+  listUnequippedOwned,
+  unequipSlot,
+  unequipSlots,
+  UNDRESS_ORDER_BOTTOM,
+  UNDRESS_ORDER_TORSO,
+} from './utils/items/equipGear';
+import {
+  getLewdPreload,
+  listLewdPreloads,
+} from './data/lewd/lewdPreloads';
 import type { Unit as DetailedUnit } from './types/characters';
+import type { ItemSlot } from './types/items';
+
+function cloneRecipientItems(unitId: string): Record<string, Item> {
+  const kit = getCombatCastInventory(unitId);
+  return kit ? structuredClone(kit.items) : {};
+}
 
 const MAX_LAB_CHANNELS = LEWD_TUNING.channels.labVisibleChannels;
 
-function defaultChannel(): LewdChannel {
-  return {
-    actorPart: 'handFinger',
-    actionId: 'fingerStroke',
-    targetPart: 'lips',
-    intensity: 5,
-  };
+function withTiming(
+  ch: Omit<LewdChannel, 'durationSeconds' | 'remainingSeconds'> &
+    Partial<Pick<LewdChannel, 'durationSeconds' | 'remainingSeconds'>>,
+  defaultDuration: number = LEWD_TUNING.defaultHoldSeconds
+): LewdChannel {
+  const durationSeconds = Math.max(1, ch.durationSeconds ?? defaultDuration);
+  const remainingSeconds =
+    ch.remainingSeconds != null
+      ? Math.max(0, ch.remainingSeconds)
+      : durationSeconds;
+  return { ...ch, durationSeconds, remainingSeconds };
+}
+
+function defaultChannel(
+  defaultDuration: number = LEWD_TUNING.defaultHoldSeconds
+): LewdChannel {
+  return withTiming(
+    {
+      actorPart: 'handFinger',
+      actionId: 'fingerStroke',
+      targetPart: 'lips',
+      intensity: 5,
+      clothingAccess: 'over',
+    },
+    defaultDuration
+  );
+}
+
+function channelLabel(ch: LewdChannel): string {
+  return `${ch.actionId}→${ch.targetPart}`;
 }
 
 const DEFAULT_PROACTIVE = 'unit_sain';
@@ -204,8 +254,23 @@ function LewdLab() {
     cloneHydrated(DEFAULT_RECIPIENT)
   );
 
+  const [defaultDuration, setDefaultDuration] = useState<number>(
+    LEWD_TUNING.defaultHoldSeconds
+  );
   const [channels, setChannels] = useState<LewdChannel[]>(() => [defaultChannel()]);
-  const [holdSeconds, setHoldSeconds] = useState<number>(LEWD_TUNING.defaultHoldSeconds);
+  const [stepPauseNote, setStepPauseNote] = useState<string | null>(null);
+  const [isStepping, setIsStepping] = useState(false);
+  /** Wall-clock ms per game-second while stepping (real-time playback). */
+  const [stepPaceMs, setStepPaceMs] = useState(1000);
+  const stepRunIdRef = useRef(0);
+  const preloadList = listLewdPreloads();
+  const [preloadId, setPreloadId] = useState(preloadList[0]?.id ?? 'give_shoulder_rub');
+  const [preloadVariantId, setPreloadVariantId] = useState(
+    preloadList[0]?.defaultVariant ?? 'firm'
+  );
+  const [itemsById, setItemsById] = useState<Record<string, Item>>(() =>
+    cloneRecipientItems(DEFAULT_RECIPIENT)
+  );
 
   const [encounter, setEncounter] = useState<EncounterArousalState>(() =>
     createEncounterArousalState()
@@ -226,6 +291,7 @@ function LewdLab() {
     const next = cloneHydrated(recipientId);
     setRecipient(next);
     setEncounter(createEncounterArousalState());
+    setItemsById(cloneRecipientItems(recipientId));
   }, [recipientId]);
 
   useEffect(() => {
@@ -282,6 +348,54 @@ function LewdLab() {
   const pushLog = (line: string) => {
     const stamped = `[${new Date().toLocaleTimeString()}] ${line}`;
     setLog((prev) => [stamped, ...prev].slice(0, 50));
+  };
+
+  const syncRecipientGear = () => {
+    if (!recipient) return;
+    setRecipient({
+      ...recipient,
+      equipment: { ...recipient.equipment },
+    });
+    setItemsById({ ...itemsById });
+  };
+
+  const onUnequipSlot = (slot: ItemSlot) => {
+    if (!recipient) return;
+    const r = unequipSlot({ unit: recipient, itemsById }, slot);
+    if (!r.ok) {
+      pushLog(r.message);
+      return;
+    }
+    syncRecipientGear();
+    pushLog(`Unequipped ${r.item.name} (${slot}).`);
+  };
+
+  const onEquipOwned = (itemId: string) => {
+    if (!recipient) return;
+    const r = equipItem({ unit: recipient, itemsById }, itemId);
+    if (!r.ok) {
+      pushLog(r.message);
+      return;
+    }
+    syncRecipientGear();
+    const prev = r.previous ? ` (replaced ${r.previous.name})` : '';
+    pushLog(`Equipped ${r.item.name} → ${r.item.equippedSlot}${prev}.`);
+  };
+
+  const onPeelOrder = (slots: ItemSlot[], label: string) => {
+    if (!recipient) return;
+    const { unequipped } = unequipSlots(
+      { unit: recipient, itemsById },
+      slots
+    );
+    syncRecipientGear();
+    if (unequipped.length === 0) {
+      pushLog(`Peel ${label}: nothing worn in those slots.`);
+      return;
+    }
+    pushLog(
+      `Peeled ${label}: ${unequipped.map((i) => i.name).join(', ')}.`
+    );
   };
 
   const applyBondPreset = (kind: 'cold' | 'warm' | 'lovers') => {
@@ -377,77 +491,297 @@ function LewdLab() {
     if (channels.length >= MAX_LAB_CHANNELS) return;
     setChannels((prev) => [
       ...prev,
-      {
-        actorPart: 'lips',
-        actionId: 'kissLips',
-        targetPart: 'neckSide',
-        intensity: 4,
-      },
+      withTiming(
+        {
+          actorPart: 'lips',
+          actionId: 'kissLips',
+          targetPart: 'neckSide',
+          intensity: 4,
+        },
+        defaultDuration
+      ),
     ]);
+    setStepPauseNote(null);
   };
 
   const removeChannel = (index: number) => {
     if (channels.length <= 1) return;
     setChannels((prev) => prev.filter((_, i) => i !== index));
+    setStepPauseNote(null);
   };
 
+  const stopStepping = () => {
+    stepRunIdRef.current += 1;
+    setIsStepping(false);
+    setStepPauseNote('Playback stopped.');
+    pushLog('Playback stopped by player.');
+  };
+
+  /**
+   * Real-time playback: Play re-arms every channel to its duration, then each
+   * game-second is resolved live. Channels that finish drop out; others keep
+   * going. Click Play again to re-initiate the programmed acts.
+   */
   const onPerform = () => {
     if (!proactive || !recipient) return;
+    if (isStepping) return;
     if (!encounterOk) {
       pushLog('Blocked — M→M erotic content is design-gated.');
       return;
     }
-    try {
-      const result = resolveLewdChannels({
-        proactive,
-        recipient,
-        channels,
-        holdSeconds,
-        encounter,
-        proactiveEncounter,
-        relationships: relGraph,
+    if (channels.length < 1) return;
+
+    // Re-initiate: remaining = duration for every programmed channel.
+    let localChannels = channels.map((ch) => {
+      const durationSeconds = Math.max(1, ch.durationSeconds ?? defaultDuration);
+      return { ...ch, durationSeconds, remainingSeconds: durationSeconds };
+    });
+    setChannels(localChannels);
+
+    const runId = ++stepRunIdRef.current;
+    setIsStepping(true);
+    setStepPauseNote(`Playing out… (${localChannels.length} channel${localChannels.length === 1 ? '' : 's'})`);
+    pushLog(
+      `Begin playback (${stepPaceMs}ms / game-second) — ${localChannels
+        .map((c) => `${channelLabel(c)} ${c.durationSeconds}s`)
+        .join(', ')}`
+    );
+
+    let localEncounter = encounter;
+    let localProEncounter = proactiveEncounter;
+    let localRecipient = recipient;
+    let localItems = itemsById;
+    let steps = 0;
+    const maxSteps = 120;
+
+    const delay = (ms: number) =>
+      new Promise<void>((resolve) => {
+        window.setTimeout(resolve, ms);
       });
-      setEncounter(result.encounter);
-      setProactiveEncounter(result.proactiveEncounter);
-      setRecipient(result.recipientAfterSoil);
-      const resistNote =
-        recipientOrientResist > 0.05
-          ? ` · orientResist ${recipientOrientResist.toFixed(2)} (soft F→F)`
-          : '';
-      const pushNote =
-        result.pushReadiness !== 'ok'
-          ? ` · push ${result.pushReadiness} (needA ${result.pushRequiredArousal.toFixed(0)} will ${result.pushWillingness.toFixed(2)})`
-          : '';
-      const climaxNote = [
-        result.climaxed ? `recv climax #${result.encounter.climaxCount}` : '',
-        result.proactiveClimaxed
-          ? `pro climax #${result.proactiveEncounter.climaxCount}`
-          : '',
-      ]
-        .filter(Boolean)
-        .join(' · ');
-      const fluidNote = result.discharges
-        .map((d) => `${d.kind}@${d.volume.toFixed(2)}${d.site ? `@${d.site}` : ''}`)
-        .join(', ');
-      const bodyNote = result.ambientLubrication
-        ? ` · wet ${result.fertileCrest01.toFixed(2)} crest${result.bodilyBlurb ? ` — ${result.bodilyBlurb}` : ''}`
-        : result.fertileCrest01 > 0.2
-          ? ` · crest ${result.fertileCrest01.toFixed(2)}`
-          : '';
-      const conceptionNote = result.conceptionNote
-        ? ` · ${result.conceptionNote}`
-        : ` · repro ${describeReproduction(result.recipientAfterSoil)}`;
-      pushLog(
-        `${result.band.toUpperCase()}: ${result.summary} · n=${channels.length} attn ${result.attentionCost.toFixed(1)}${result.synergy ? ' synergy' : ''} · bondBudget ${bondBudget.toFixed(0)} needA ${result.arousalRequired.toFixed(0)} (eff ${result.arousalEffectiveForGate.toFixed(0)}${result.afterglowGateCredit > 0.5 ? ` incl +${result.afterglowGateCredit.toFixed(0)} afterglow` : ''}) needInt ${result.intimacyRequired.toFixed(0)} · psych ${result.psychQuality.toFixed(2)} physio ${result.physioQuality.toFixed(2)} · recv A ${result.encounter.arousal.toFixed(0)} E ${result.encounter.edge.toFixed(0)} · pro A ${result.proactiveEncounter.arousal.toFixed(0)} E ${result.proactiveEncounter.edge.toFixed(0)} · ${result.bandLabel}${resistNote}${pushNote}${climaxNote ? ` · ${climaxNote}` : ''}${fluidNote ? ` · fluid ${fluidNote}` : ''}${bodyNote}${conceptionNote}`
-      );
-    } catch (e) {
-      pushLog(`Error: ${e instanceof Error ? e.message : String(e)}`);
+
+    void (async () => {
+      try {
+        while (steps < maxSteps) {
+          if (stepRunIdRef.current !== runId) return;
+
+          const active = localChannels.filter((c) => (c.remainingSeconds ?? 0) > 0);
+          if (active.length < 1) {
+            const note = `Finished after ${steps}s — click Play to re-initiate.`;
+            setStepPauseNote(note);
+            pushLog(note);
+            break;
+          }
+
+          const result = resolveLewdChannels({
+            proactive,
+            recipient: localRecipient,
+            channels: active,
+            holdSeconds: 1,
+            encounter: localEncounter,
+            proactiveEncounter: localProEncounter,
+            relationships: relGraph,
+            itemsById: localItems,
+          });
+          localEncounter = result.encounter;
+          localProEncounter = result.proactiveEncounter;
+          localRecipient = result.recipientAfterSoil;
+          steps += 1;
+          setItemsById({ ...localItems });
+
+          const beforeRem = localChannels.map((c) => c.remainingSeconds ?? 0);
+          localChannels = localChannels.map((c) => {
+            const rem = c.remainingSeconds ?? 0;
+            if (rem <= 0) return c;
+            return { ...c, remainingSeconds: rem - 1 };
+          });
+          const expiredLabels = localChannels
+            .map((c, i) =>
+              beforeRem[i]! > 0 && (c.remainingSeconds ?? 0) <= 0
+                ? channelLabel(c)
+                : null
+            )
+            .filter((x): x is string => !!x);
+
+          // Paint this game-second so meters / remaining tick live.
+          setChannels(localChannels);
+          setEncounter(localEncounter);
+          setProactiveEncounter(localProEncounter);
+          setRecipient(localRecipient);
+          setStepPauseNote(
+            `Playing t+${steps}s… ${active.map((c) => channelLabel(c)).join(' + ')}`
+          );
+          pushLog(
+            `t+${steps}s: ${result.band.toUpperCase()} · A ${result.encounter.arousal.toFixed(0)} E ${result.encounter.edge.toFixed(0)} · rem ${localChannels
+              .map((c) => `${c.actionId}:${c.remainingSeconds ?? 0}`)
+              .join(' ')}`
+          );
+          if (expiredLabels.length > 0) {
+            const still = localChannels.filter((c) => (c.remainingSeconds ?? 0) > 0);
+            pushLog(
+              `Ended: ${expiredLabels.join(', ')}${
+                still.length
+                  ? ` · continuing: ${still.map((c) => channelLabel(c)).join(', ')}`
+                  : ''
+              }`
+            );
+          }
+
+          await delay(stepPaceMs);
+          if (stepRunIdRef.current !== runId) return;
+        }
+      } catch (e) {
+        pushLog(`Error: ${e instanceof Error ? e.message : String(e)}`);
+        setStepPauseNote('Playback aborted (error).');
+      } finally {
+        if (stepRunIdRef.current === runId) {
+          setIsStepping(false);
+        }
+      }
+    })();
+  };
+
+  /**
+   * Play an authored preload: sequential phases rewrite channels when each
+   * phase's duration elapses. Exclusive for the run (replaces lab channels).
+   */
+  const onPerformPreload = () => {
+    if (!proactive || !recipient) return;
+    if (isStepping) return;
+    if (!encounterOk) {
+      pushLog('Blocked — M→M erotic content is design-gated.');
+      return;
     }
+
+    const expanded = expandPreload(preloadId, preloadVariantId);
+    if (!expanded || expanded.phases.length < 1) {
+      pushLog(`Unknown preload: ${preloadId}`);
+      return;
+    }
+
+    const savedChannels = channels.map((c) => ({ ...c }));
+    let phaseIndex = 0;
+    let localChannels = expanded.phases[0]!.channels.map((c) => ({ ...c }));
+    setChannels(localChannels);
+
+    const runId = ++stepRunIdRef.current;
+    setIsStepping(true);
+    const header = `Preload ${expanded.preloadId}/${expanded.variantId} (${expanded.totalSeconds}s, ${expanded.phases.length} phases)`;
+    setStepPauseNote(`Playing preload… ${expanded.variantLabel}`);
+    pushLog(`Begin ${header} — ${stepPaceMs}ms / game-second.`);
+    pushLog(
+      `Preload phase 1/${expanded.phases.length}: ${expanded.phases[0]!.label}`
+    );
+
+    let localEncounter = encounter;
+    let localProEncounter = proactiveEncounter;
+    let localRecipient = recipient;
+    let localItems = itemsById;
+    let steps = 0;
+    const maxSteps = 180;
+
+    const delay = (ms: number) =>
+      new Promise<void>((resolve) => {
+        window.setTimeout(resolve, ms);
+      });
+
+    void (async () => {
+      try {
+        while (steps < maxSteps && phaseIndex < expanded.phases.length) {
+          if (stepRunIdRef.current !== runId) return;
+
+          const phase = expanded.phases[phaseIndex]!;
+          const active = localChannels.filter((c) => (c.remainingSeconds ?? 0) > 0);
+          if (active.length < 1) {
+            phaseIndex += 1;
+            if (phaseIndex >= expanded.phases.length) break;
+            const nextPhase = expanded.phases[phaseIndex]!;
+            localChannels = nextPhase.channels.map((c) => ({ ...c }));
+            setChannels(localChannels);
+            pushLog(
+              `Preload phase ${phaseIndex + 1}/${expanded.phases.length}: ${nextPhase.label}`
+            );
+            continue;
+          }
+
+          const result = resolveLewdChannels({
+            proactive,
+            recipient: localRecipient,
+            channels: active,
+            holdSeconds: 1,
+            encounter: localEncounter,
+            proactiveEncounter: localProEncounter,
+            relationships: relGraph,
+            itemsById: localItems,
+          });
+          localEncounter = result.encounter;
+          localProEncounter = result.proactiveEncounter;
+          localRecipient = result.recipientAfterSoil;
+          steps += 1;
+          setItemsById({ ...localItems });
+
+          localChannels = localChannels.map((c) => {
+            const rem = c.remainingSeconds ?? 0;
+            if (rem <= 0) return c;
+            return { ...c, remainingSeconds: rem - 1 };
+          });
+
+          setChannels(localChannels);
+          setEncounter(localEncounter);
+          setProactiveEncounter(localProEncounter);
+          setRecipient(localRecipient);
+          setStepPauseNote(
+            `Preload t+${steps}s · ${phase.label} (${phaseIndex + 1}/${expanded.phases.length}) · A ${result.encounter.arousal.toFixed(0)} E ${result.encounter.edge.toFixed(0)}`
+          );
+          if (steps === 1 || steps % 5 === 0 || result.climaxed || result.ruined) {
+            pushLog(
+              `t+${steps}s [${phase.label}]: ${result.band.toUpperCase()} · A ${result.encounter.arousal.toFixed(0)} E ${result.encounter.edge.toFixed(0)} · mind ${(result.encounter.discomfortPsych ?? 0).toFixed(0)}`
+            );
+          }
+
+          const phaseDone = localChannels.every((c) => (c.remainingSeconds ?? 0) <= 0);
+          if (phaseDone) {
+            phaseIndex += 1;
+            if (phaseIndex < expanded.phases.length) {
+              const nextPhase = expanded.phases[phaseIndex]!;
+              localChannels = nextPhase.channels.map((c) => ({ ...c }));
+              setChannels(localChannels);
+              pushLog(
+                `Preload phase ${phaseIndex + 1}/${expanded.phases.length}: ${nextPhase.label}`
+              );
+            }
+          }
+
+          await delay(stepPaceMs);
+          if (stepRunIdRef.current !== runId) return;
+        }
+
+        if (stepRunIdRef.current === runId) {
+          const note = `Preload finished after ${steps}s — restored prior channels.`;
+          setStepPauseNote(note);
+          pushLog(note);
+        }
+      } catch (e) {
+        pushLog(`Error: ${e instanceof Error ? e.message : String(e)}`);
+        setStepPauseNote('Preload aborted (error).');
+      } finally {
+        setChannels(savedChannels);
+        if (stepRunIdRef.current === runId) {
+          setIsStepping(false);
+        } else {
+          setStepPauseNote('Preload stopped — channels restored.');
+          pushLog('Preload stopped — channels restored.');
+        }
+      }
+    })();
   };
 
   const onIdle = (seconds: number) => {
-    const nextRecv = idleEncounterArousal(encounter, seconds);
-    const nextPro = idleEncounterArousal(proactiveEncounter, seconds);
+    const nextRecv = idleEncounterArousal(encounter, seconds, recipient?.sex);
+    const nextPro = idleEncounterArousal(
+      proactiveEncounter,
+      seconds,
+      proactive?.sex
+    );
     setEncounter(nextRecv);
     setProactiveEncounter(nextPro);
     // High encounter arousal can leave a panty wet spot without foreplay.
@@ -476,21 +810,34 @@ function LewdLab() {
     pushLog('Encounter meters reset (recipient + proactive).');
   };
 
-  const performDisabled = !encounterOk || channels.length < 1;
-  const performButton = (opts?: { compact?: boolean }) => (
-    <button
-      type="button"
-      onClick={onPerform}
-      disabled={performDisabled}
-      style={{
-        ...performBtnBase,
-        opacity: performDisabled ? 0.45 : 1,
-        width: opts?.compact ? undefined : '100%',
-      }}
-    >
-      Perform ({channels.length} channel{channels.length === 1 ? '' : 's'})
-    </button>
-  );
+  const performButton = (opts?: { compact?: boolean }) =>
+    isStepping ? (
+      <button
+        type="button"
+        onClick={stopStepping}
+        style={{
+          ...performBtnBase,
+          width: opts?.compact ? undefined : '100%',
+          background: 'rgba(251, 191, 36, 0.25)',
+          borderColor: 'rgba(251, 191, 36, 0.55)',
+        }}
+      >
+        Stop playback
+      </button>
+    ) : (
+      <button
+        type="button"
+        onClick={onPerform}
+        disabled={!encounterOk || channels.length < 1}
+        style={{
+          ...performBtnBase,
+          opacity: !encounterOk || channels.length < 1 ? 0.45 : 1,
+          width: opts?.compact ? undefined : '100%',
+        }}
+      >
+        {`Play in real time (${channels.length} channel${channels.length === 1 ? '' : 's'})`}
+      </button>
+    );
 
   return (
     <div style={pageStyle}>
@@ -660,13 +1007,25 @@ function LewdLab() {
               <Meter label="Arousal" value={encounter.arousal} max={100} color="#f472b6" />
               <Meter label="Edge" value={encounter.edge} max={100} color="#fb7185" />
               <Meter
-                label="Discomfort"
-                value={encounter.discomfort}
+                label="Body (phys)"
+                value={encounter.discomfortPhys ?? encounter.discomfort}
+                max={100}
+                color="#fb923c"
+              />
+              <Meter
+                label="Mind (psych)"
+                value={encounter.discomfortPsych ?? encounter.discomfort}
                 max={100}
                 color="#fbbf24"
               />
               <div style={{ fontSize: 11, opacity: 0.65 }}>
                 Climaxes {encounter.climaxCount} · recv ×{encounter.receptivity.toFixed(2)}
+                {' · '}
+                soft-block mind ≥{LEWD_TUNING.encounter.discomfortPsychSoftCap}
+                {recipient?.sex === 'M' &&
+                (encounter.refractorySecondsRemaining ?? 0) > 0
+                  ? ` · refractory ${encounter.refractorySecondsRemaining.toFixed(0)}s`
+                  : ''}
               </div>
             </div>
             <div>
@@ -686,20 +1045,34 @@ function LewdLab() {
                 color="#a78bfa"
               />
               <Meter
-                label="Discomfort"
-                value={proactiveEncounter.discomfort}
+                label="Body (phys)"
+                value={
+                  proactiveEncounter.discomfortPhys ?? proactiveEncounter.discomfort
+                }
+                max={100}
+                color="#fb923c"
+              />
+              <Meter
+                label="Mind (psych)"
+                value={
+                  proactiveEncounter.discomfortPsych ?? proactiveEncounter.discomfort
+                }
                 max={100}
                 color="#fbbf24"
               />
               <div style={{ fontSize: 11, opacity: 0.65 }}>
                 Climaxes {proactiveEncounter.climaxCount} · recv ×
                 {proactiveEncounter.receptivity.toFixed(2)}
+                {proactive?.sex === 'M' &&
+                (proactiveEncounter.refractorySecondsRemaining ?? 0) > 0
+                  ? ` · refractory ${proactiveEncounter.refractorySecondsRemaining.toFixed(0)}s`
+                  : ''}
               </div>
             </div>
           </div>
           <div style={{ fontSize: 11, opacity: 0.55, marginBottom: 10 }}>
-            Proactive orgasm / semen discharge stubs feed impregnation later. Cold push (low
-            desire/arousal) soft-gates deep acts for both sides.
+            Proactive orgasm / semen discharge stubs feed impregnation later. Male climax
+            starts a refractory window (no new edge/orgasm). Cold push soft-gates deep acts.
           </div>
           <div style={{ marginBottom: 10 }}>{performButton()}</div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
@@ -881,6 +1254,174 @@ function LewdLab() {
         </section>
       </div>
 
+      {recipient ? (
+        <section
+          style={{ ...cardStyle, maxWidth: 1100, margin: '0 auto 16px' }}
+        >
+          <h2 style={{ margin: '0 0 6px', fontSize: '1.1rem', color: '#f9a8d4' }}>
+            Recipient gear · {recipient.name}
+          </h2>
+          <p style={{ margin: '0 0 10px', fontSize: 12, opacity: 0.65, lineHeight: 1.4 }}>
+            Shared equip/unequip API — peel layers so clothing barriers drop for
+            skin/orifice acts. Unequipped pieces stay owned (re-equip anytime).
+          </p>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+            <button
+              type="button"
+              style={smallBtn}
+              disabled={isStepping}
+              onClick={() => onPeelOrder(UNDRESS_ORDER_TORSO, 'torso')}
+            >
+              Peel torso
+            </button>
+            <button
+              type="button"
+              style={smallBtn}
+              disabled={isStepping}
+              onClick={() => onPeelOrder(UNDRESS_ORDER_BOTTOM, 'bottom')}
+            >
+              Peel bottom
+            </button>
+            <button
+              type="button"
+              style={smallBtn}
+              disabled={isStepping}
+              onClick={() => {
+                const bag = listUnequippedOwned({
+                  unit: recipient,
+                  itemsById,
+                });
+                if (bag.length === 0) {
+                  pushLog('Nothing unequipped to re-equip.');
+                  return;
+                }
+                let n = 0;
+                for (const it of bag) {
+                  const r = equipItem(
+                    { unit: recipient, itemsById },
+                    it.id
+                  );
+                  if (r.ok) n += 1;
+                }
+                syncRecipientGear();
+                pushLog(`Re-equipped ${n} piece(s).`);
+              }}
+            >
+              Re-equip all owned
+            </button>
+          </div>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
+              gap: 12,
+            }}
+          >
+            <div>
+              <h3
+                style={{
+                  margin: '0 0 8px',
+                  fontSize: 12,
+                  opacity: 0.7,
+                  letterSpacing: 0.4,
+                }}
+              >
+                EQUIPPED
+              </h3>
+              {listEquipped({ unit: recipient, itemsById }).length === 0 ? (
+                <p style={{ margin: 0, fontSize: 12, opacity: 0.55 }}>Bare.</p>
+              ) : (
+                <ul style={{ margin: 0, padding: 0, listStyle: 'none' }}>
+                  {listEquipped({ unit: recipient, itemsById }).map(
+                    ({ slot, item }) => (
+                      <li
+                        key={slot}
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          gap: 8,
+                          marginBottom: 6,
+                          fontSize: 12,
+                        }}
+                      >
+                        <span>
+                          <span style={{ opacity: 0.55 }}>{slot}</span> ·{' '}
+                          {item.name}
+                          {item.garmentState &&
+                          Object.values(item.garmentState.displace ?? {}).some(
+                            Boolean
+                          )
+                            ? ' · displaced'
+                            : ''}
+                        </span>
+                        <button
+                          type="button"
+                          style={{ ...smallBtn, padding: '3px 8px', fontSize: 11 }}
+                          disabled={isStepping}
+                          onClick={() => onUnequipSlot(slot)}
+                        >
+                          Unequip
+                        </button>
+                      </li>
+                    )
+                  )}
+                </ul>
+              )}
+            </div>
+            <div>
+              <h3
+                style={{
+                  margin: '0 0 8px',
+                  fontSize: 12,
+                  opacity: 0.7,
+                  letterSpacing: 0.4,
+                }}
+              >
+                OWNED · UNEQUIPPED
+              </h3>
+              {listUnequippedOwned({ unit: recipient, itemsById }).length ===
+              0 ? (
+                <p style={{ margin: 0, fontSize: 12, opacity: 0.55 }}>
+                  None (everything worn or discarded).
+                </p>
+              ) : (
+                <ul style={{ margin: 0, padding: 0, listStyle: 'none' }}>
+                  {listUnequippedOwned({ unit: recipient, itemsById }).map(
+                    (item) => (
+                      <li
+                        key={item.id}
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          gap: 8,
+                          marginBottom: 6,
+                          fontSize: 12,
+                        }}
+                      >
+                        <span>
+                          <span style={{ opacity: 0.55 }}>{item.slot}</span> ·{' '}
+                          {item.name}
+                        </span>
+                        <button
+                          type="button"
+                          style={{ ...smallBtn, padding: '3px 8px', fontSize: 11 }}
+                          disabled={isStepping}
+                          onClick={() => onEquipOwned(item.id)}
+                        >
+                          Equip
+                        </button>
+                      </li>
+                    )
+                  )}
+                </ul>
+              )}
+            </div>
+          </div>
+        </section>
+      ) : null}
+
       <div
         style={{
           display: 'grid',
@@ -915,7 +1456,11 @@ function LewdLab() {
             const actionDef = getLewdAction(ch.actionId);
             const needA =
               actionDef && bit
-                ? requiredArousalForAct(actionDef.intimacy, bit.intimacy)
+                ? requiredArousalForAct(
+                    actionDef.intimacy,
+                    bit.intimacy,
+                    bit.sensitivity
+                  )
                 : 0;
             return (
               <div
@@ -940,15 +1485,25 @@ function LewdLab() {
                   <strong>
                     Channel {index + 1}{' '}
                     <span style={{ opacity: 0.55, fontWeight: 400 }}>({limb})</span>
+                    {(ch.remainingSeconds ?? 0) <= 0 ? (
+                      <span style={{ opacity: 0.55, fontWeight: 400 }}> · idle</span>
+                    ) : (
+                      <span style={{ opacity: 0.65, fontWeight: 400 }}>
+                        {' '}
+                        · {ch.remainingSeconds}s left
+                      </span>
+                    )}
                   </strong>
-                  <button
-                    type="button"
-                    style={smallBtn}
-                    disabled={channels.length <= 1}
-                    onClick={() => removeChannel(index)}
-                  >
-                    Remove
-                  </button>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button
+                      type="button"
+                      style={smallBtn}
+                      disabled={channels.length <= 1}
+                      onClick={() => removeChannel(index)}
+                    >
+                      Remove
+                    </button>
+                  </div>
                 </div>
                 <label style={{ fontSize: 11, opacity: 0.75, display: 'block', marginBottom: 8 }}>
                   Actor part
@@ -1005,7 +1560,7 @@ function LewdLab() {
                     ) : null}
                   </div>
                 ) : null}
-                <label style={{ fontSize: 11, opacity: 0.75, display: 'block' }}>
+                <label style={{ fontSize: 11, opacity: 0.75, display: 'block', marginBottom: 8 }}>
                   Intensity {ch.intensity}
                   <input
                     type="range"
@@ -1018,9 +1573,162 @@ function LewdLab() {
                     style={{ width: '100%', display: 'block', marginTop: 3 }}
                   />
                 </label>
+                <label style={{ fontSize: 11, opacity: 0.75, display: 'block', marginBottom: 8 }}>
+                  Clothing access
+                  <select
+                    value={ch.clothingAccess ?? 'over'}
+                    onChange={(e) =>
+                      updateChannel(index, {
+                        clothingAccess: e.target.value as ClothingAccessMode,
+                      })
+                    }
+                    style={{ ...selectStyle, marginTop: 3 }}
+                  >
+                    <option value="over">Over clothes</option>
+                    <option value="under">Under outer layer</option>
+                    <option value="displace">Displace / push aside</option>
+                  </select>
+                </label>
+                {recipient ? (
+                  <div style={{ fontSize: 11, opacity: 0.65, marginBottom: 8, lineHeight: 1.4 }}>
+                    {(() => {
+                      const barrier = clothingBarrierForLewdTarget(
+                        recipient,
+                        itemsById,
+                        ch.targetPart,
+                        ch.clothingAccess ?? 'over',
+                        { applyDisplace: false }
+                      );
+                      const act = getLewdAction(ch.actionId);
+                      const tier = act?.access ?? 'clothOk';
+                      const layers =
+                        barrier.layers.length > 0
+                          ? barrier.layers
+                              .map(
+                                (l) =>
+                                  `${l.slot} ${(l.effectiveCov * 100).toFixed(0)}%`
+                              )
+                              .join(' + ')
+                          : 'bare';
+                      return `Access ${tier} · barrier soft ${(barrier.softBarrier01 * 100).toFixed(0)}%${
+                        barrier.hardBlocked ? ' · HARD BLOCK' : ''
+                      }${barrier.skinClear ? ' · skin clear' : ''} · ${layers}`;
+                    })()}
+                  </div>
+                ) : null}
+                <label style={{ fontSize: 11, opacity: 0.75, display: 'block' }}>
+                  Duration {ch.durationSeconds ?? defaultDuration}s
+                  <span style={{ opacity: 0.55 }}>
+                    {' '}
+                    · remaining {ch.remainingSeconds ?? 0}s
+                  </span>
+                  <input
+                    type="range"
+                    min={1}
+                    max={20}
+                    value={ch.durationSeconds ?? defaultDuration}
+                    onChange={(e) => {
+                      const durationSeconds = Number(e.target.value);
+                      updateChannel(index, {
+                        durationSeconds,
+                        remainingSeconds: durationSeconds,
+                      });
+                      setStepPauseNote(null);
+                    }}
+                    style={{ width: '100%', display: 'block', marginTop: 3 }}
+                  />
+                </label>
               </div>
             );
           })}
+
+          <div
+            style={{
+              marginBottom: 14,
+              padding: '10px 12px',
+              borderRadius: 10,
+              border: '1px solid rgba(167,139,250,0.35)',
+              background: 'rgba(76,29,149,0.18)',
+            }}
+          >
+            <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, color: '#ddd6fe' }}>
+              Preload sequence
+            </div>
+            <p style={{ margin: '0 0 8px', fontSize: 11, opacity: 0.7, lineHeight: 1.4 }}>
+              Scripted multi-locus playlist. Play replaces channels for the run, then restores
+              your manual setup.
+            </p>
+            <label style={{ fontSize: 11, opacity: 0.75, display: 'block', marginBottom: 8 }}>
+              Preload
+              <select
+                value={preloadId}
+                disabled={isStepping}
+                onChange={(e) => {
+                  const id = e.target.value;
+                  setPreloadId(id);
+                  const def = getLewdPreload(id);
+                  setPreloadVariantId(def?.defaultVariant ?? 'firm');
+                }}
+                style={{ ...selectStyle, marginTop: 3 }}
+              >
+                {preloadList.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {(() => {
+              const def = getLewdPreload(preloadId);
+              if (!def) return null;
+              const expanded = expandPreload(preloadId, preloadVariantId);
+              return (
+                <>
+                  <p style={{ margin: '0 0 8px', fontSize: 12, opacity: 0.8, lineHeight: 1.4 }}>
+                    {def.blurb}
+                    {expanded
+                      ? ` · ${expanded.phases.length} phases · ~${expanded.totalSeconds}s`
+                      : ''}
+                  </p>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+                    {Object.entries(def.variants).map(([vid, v]) => {
+                      const active = vid === preloadVariantId;
+                      return (
+                        <button
+                          key={vid}
+                          type="button"
+                          disabled={isStepping}
+                          onClick={() => setPreloadVariantId(vid)}
+                          style={{
+                            ...smallBtn,
+                            borderColor: active
+                              ? 'rgba(167,139,250,0.9)'
+                              : 'rgba(167,139,250,0.25)',
+                            background: active
+                              ? 'rgba(167,139,250,0.25)'
+                              : 'rgba(255,255,255,0.04)',
+                          }}
+                        >
+                          {v.label} · int {v.intensity}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <button
+                    type="button"
+                    style={{
+                      ...smallBtn,
+                      opacity: !encounterOk || isStepping ? 0.45 : 1,
+                    }}
+                    disabled={!encounterOk || isStepping}
+                    onClick={onPerformPreload}
+                  >
+                    Play preload ({preloadVariantId})
+                  </button>
+                </>
+              );
+            })()}
+          </div>
 
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
             <button
@@ -1034,43 +1742,95 @@ function LewdLab() {
             <button
               type="button"
               style={smallBtn}
-              onClick={() =>
-                setChannels([
-                  {
-                    actorPart: 'lips',
-                    actionId: 'kissLips',
-                    targetPart: 'neckSide',
-                    intensity: 4,
-                  },
-                  {
-                    actorPart: 'handPalm',
-                    actionId: 'palmRub',
-                    targetPart: 'hip',
-                    intensity: 3,
-                  },
-                ])
-              }
+              onClick={() => {
+                if (!recipient) return;
+                const n = resetGarmentDisplace(recipient, itemsById);
+                setItemsById({ ...itemsById });
+                pushLog(
+                  n > 0
+                    ? `Reset garment displace on ${n} piece(s).`
+                    : 'No garment displace to reset.'
+                );
+              }}
             >
-              Preset: kiss + hip rub
+              Reset clothing displace
+            </button>
+            <button
+              type="button"
+              style={smallBtn}
+              onClick={() => {
+                setChannels([
+                  withTiming(
+                    {
+                      actorPart: 'lips',
+                      actionId: 'kissLips',
+                      targetPart: 'neckSide',
+                      intensity: 4,
+                      durationSeconds: 4,
+                    },
+                    4
+                  ),
+                  withTiming(
+                    {
+                      actorPart: 'handPalm',
+                      actionId: 'palmRub',
+                      targetPart: 'hip',
+                      intensity: 3,
+                      durationSeconds: 8,
+                    },
+                    8
+                  ),
+                ]);
+                setStepPauseNote(null);
+              }}
+            >
+              Preset: kiss 4s + hip 8s
             </button>
           </div>
 
-          <label style={{ fontSize: 12, opacity: 0.75, display: 'block', marginBottom: 12 }}>
-            Hold seconds {holdSeconds}
+          <label style={{ fontSize: 12, opacity: 0.75, display: 'block', marginBottom: 8 }}>
+            Default duration for new channels {defaultDuration}s
             <input
               type="range"
               min={1}
               max={20}
-              value={holdSeconds}
-              onChange={(e) => setHoldSeconds(Number(e.target.value))}
+              value={defaultDuration}
+              onChange={(e) => setDefaultDuration(Number(e.target.value))}
+              style={{ width: '100%', display: 'block', marginTop: 4 }}
+            />
+          </label>
+          <label style={{ fontSize: 12, opacity: 0.75, display: 'block', marginBottom: 12 }}>
+            Playback pace {stepPaceMs}ms / game-second
+            <input
+              type="range"
+              min={200}
+              max={1500}
+              step={100}
+              value={stepPaceMs}
+              disabled={isStepping}
+              onChange={(e) => setStepPaceMs(Number(e.target.value))}
               style={{ width: '100%', display: 'block', marginTop: 4 }}
             />
           </label>
 
+          {stepPauseNote ? (
+            <p
+              style={{
+                margin: '0 0 10px',
+                fontSize: 12,
+                color: '#fcd34d',
+                lineHeight: 1.4,
+              }}
+            >
+              {stepPauseNote}
+            </p>
+          ) : null}
+
           {performButton({ compact: true })}
           <p style={{ margin: '10px 0 0', fontSize: 11, opacity: 0.5 }}>
-            Psych soft-ORs across channels; Edge follows the strongest erogenous physio. Same Perform
-            control also sits beside the meters above so you can watch A/E/D while clicking.
+            Play re-arms each channel to its duration and resolves one game-second at a time
+            (live meters). Finished channels drop out; click Play again to re-initiate. Use
+            Preload sequence for authored multi-locus scripts (e.g. shoulder rub).
           </p>
         </section>
 

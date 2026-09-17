@@ -1,4 +1,8 @@
-import type { ItemizedHealth } from '../../types/characters';
+import type { BodyPartId, ItemizedHealth } from '../../types/characters';
+import {
+  BODYPART_COMBAT_MODIFIERS,
+  type CombatPenaltyStat,
+} from '../../data/combat/bodypartCombatModifiers';
 
 /** Port of utils_old CalcStaminaPenalty */
 export function calcStaminaPenalty(staminaCap: number, staminaCurrent: number): number {
@@ -7,7 +11,8 @@ export function calcStaminaPenalty(staminaCap: number, staminaCurrent: number): 
 }
 
 /**
- * Port of utils_old CalcWeightPenalty (single-hand form).
+ * Port of utils_old CalcWeightPenalty.
+ * `weight` may be mainhand-only or mainhand+offhand combined (old dodge form).
  * Guarded against invalid log arguments.
  */
 export function calcWeightPenalty(constitution: number, weight: number): number {
@@ -18,8 +23,35 @@ export function calcWeightPenalty(constitution: number, weight: number): number 
 }
 
 /**
- * Simplified stand-in for CalcHealthPenalty(weaponAttackPower).
- * Full bodypartHealthCombatModifiers table can replace this later.
+ * Port of utils_old CalcHealthPenalty.
+ * degradation += (1 − √health) × weight per part; return max(0, 1 − sum).
+ */
+export function calcHealthPenalty(
+  itemizedHealth: ItemizedHealth,
+  stat: CombatPenaltyStat
+): number {
+  const modifiers = BODYPART_COMBAT_MODIFIERS[stat];
+  if (!modifiers) return 1;
+
+  let totalDegradation = 0;
+  for (const [part, weight] of Object.entries(modifiers) as [
+    BodyPartId,
+    number,
+  ][]) {
+    if (!weight) continue;
+    const health = Math.max(
+      0,
+      Math.min(1, itemizedHealth[part]?.health ?? 1)
+    );
+    const reducedPerformance = 1 - Math.sqrt(health);
+    totalDegradation += reducedPerformance * weight;
+  }
+  return Math.max(0, 1 - totalDegradation);
+}
+
+/**
+ * Simplified stand-in for attack-power health degradation (avg √health).
+ * Prefer calcHealthPenalty for dodge/parry.
  */
 export function calcHealthPenaltySimple(itemizedHealth: ItemizedHealth): number {
   const parts = Object.values(itemizedHealth);

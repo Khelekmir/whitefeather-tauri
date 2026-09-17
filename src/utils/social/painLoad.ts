@@ -20,7 +20,7 @@ export function derivePainLoad(itemized: ItemizedHealth): number {
     let flag = 0;
     if (h.fracture || h.broken) flag += 0.15;
     if (h.sprain) flag += 0.05;
-    if (h.bruise) flag += 0.02;
+    if ((h.bruise ?? 0) > 0) flag += Math.min(0.15, h.bruise * 0.2);
     if ((h.bleed ?? 0) > 0) flag += Math.min(0.25, h.bleed * 0.5);
     if ((h.internalBleed ?? 0) > 0) flag += Math.min(0.2, h.internalBleed * 0.4);
     weightedInjury += vit * Math.min(1.5, missing + flag);

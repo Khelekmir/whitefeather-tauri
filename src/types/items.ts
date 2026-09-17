@@ -34,6 +34,14 @@ export type ArmorSizePreset = 'small' | 'medium' | 'large';
 export type GarmentLengthPreset = 'tunic' | 'short' | 'long' | 'full';
 
 /**
+ * Shirt-slot sleeve cut — orthogonal to garmentLength (hem).
+ * - none: sleeveless (Serra dress)
+ * - short: to upper arm (Florina / Lyn)
+ * - long: through forearm (Amberyl tunic)
+ */
+export type GarmentSleevePreset = 'none' | 'short' | 'long';
+
+/**
  * How high footwear rises (foot slot).
  * - slipper: below the ankle
  * - shoe: above the ankle
@@ -89,6 +97,12 @@ export type UndershirtStyle = FemaleUndershirtStyle | MaleUndershirtStyle;
 
 /** Hit-location coverage strength 0–1 */
 export type CoverageMap = Partial<Record<BodyPartId, number>>;
+
+/**
+ * Remaining integrity per covered body part (same 0…maxDurability scale as Item.durability).
+ * Sparse: only parts the garment narratively covers (coverage > 0). Armor only — not shields.
+ */
+export type PanelDurabilityMap = Partial<Record<BodyPartId, number>>;
 
 /**
  * Canonical equipment slots on every character (and valid item equip targets).
@@ -235,6 +249,8 @@ export interface ItemTemplate {
 
   /** Weapons / some shields */
   weaponType?: WeaponTypeId;
+  /** Shields — maps to SHIELD_TYPES (buckler / heater / …). */
+  shieldType?: string;
 
   /**
    * Armor torso reach. Ignored if `coverage` is set explicitly.
@@ -247,6 +263,13 @@ export interface ItemTemplate {
    * Used when `coverage` is omitted. See GARMENT_LENGTH_COVERAGE.
    */
   garmentLength?: GarmentLengthPreset;
+
+  /**
+   * Shirt-slot sleeve cut (none / short / long). Orthogonal to garmentLength.
+   * Merged with hem coverage in resolve. See GARMENT_SLEEVE_COVERAGE.
+   * Omit or `none` = sleeveless.
+   */
+  sleeveStyle?: GarmentSleevePreset;
 
   /**
    * Foot-slot rise height (slipper → riding).
@@ -296,15 +319,46 @@ export interface Item {
   description: string;
   material: MaterialId;
   weaponType?: WeaponTypeId;
+  /** Shields — see SHIELD_TYPES. */
+  shieldType?: string;
 
   combatStats: CombatBonus;
   lewdStats: LewdBonus;
   flags: ItemFlags;
 
+  /**
+   * Summary durability (compat / bars). For armor with panels, this is
+   * coverage-weighted from `panelDurability` — not an independent wear track.
+   */
   durability: number;
   maxDurability: number;
+  /**
+   * Sparse per-area integrity for armor. Keys ⊆ resolved coverage parts.
+   * Omitted on weapons, shields, and non-armor. Combat apply + mitigation
+   * by panel come later; schema/init only for now.
+   */
+  panelDurability?: PanelDurabilityMap;
+  /**
+   * Soft clothing fit / partial undress. Affects lewd clothing barriers
+   * (displace crotch, hike hem). Combat coverage unchanged until opted in.
+   */
+  garmentState?: GarmentFitState;
   ownerId?: string;
   equippedSlot?: ItemSlot | null;
+}
+
+/**
+ * Persistent dress displacement on an armor instance.
+ * displace[part] 0 = seated/normal, 1 = clear of that coverage panel.
+ */
+export interface GarmentFitState {
+  displace?: Partial<Record<BodyPartId, number>>;
+  macros?: {
+    hemRaised?: boolean;
+    crotchAside?: boolean;
+    cupsDown?: boolean;
+    unfastened?: boolean;
+  };
 }
 
 export interface EquipmentSlot {

@@ -136,7 +136,10 @@ export function clearSoilBag(): FluidSoilBag {
   return emptySoilBag();
 }
 
-/** Prefer underwear; API is slot-generic for future outer-layer splash. */
+/**
+ * Prefer underwear for lewd writers.
+ * Combat bleed soil uses fighter `itemsById` via `bleedClothSoil.ts` (any covering layer).
+ */
 export function getEquippedItem(
   unit: DetailedUnit,
   slot: ItemSlot = 'underwear'
