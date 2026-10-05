@@ -10,6 +10,8 @@ import {
   calcWeightPenalty,
   roundToThousandths,
 } from './penalties';
+import { COMBAT_TUNING } from './combatTuning';
+import { calcSensoryPerformance } from './sensoryPerformance';
 import { calcTraumaPenalties } from './traumaFlags';
 
 function safeLogRatio(stat: number, base: number): number {
@@ -126,11 +128,13 @@ export function calcBlockStats(
       (base.agility - base.constitution) / 50) *
     shieldType.sizeFactor;
 
+  const sensory = calcSensoryPerformance(itemized);
   let chance =
     baseChanceRaw *
       healthPenaltyChance *
       staminaPenalty *
       weightPenalty *
+      sensory.skillMult *
       noMainhandMult +
     base.luck / 200;
 
@@ -142,7 +146,7 @@ export function calcBlockStats(
     chance += item?.combatStats?.chance?.block ?? 0;
   }
 
-  const trauma = calcTraumaPenalties(itemized);
+  const trauma = calcTraumaPenalties(itemized, unit.combatStats.organs);
   chance *= trauma.blockMult * trauma.globalCombatMult;
   chance = roundToThousandths(Math.max(0, Math.min(0.95, chance)));
 
@@ -173,6 +177,7 @@ export function calcBlockStats(
     value += item?.combatStats?.value?.block ?? 0;
   }
   value *= trauma.blockMult * trauma.globalCombatMult;
+  value *= COMBAT_TUNING.shieldBlock.blockValueScale;
   value = roundToThousandths(Math.max(0, value));
 
   return {

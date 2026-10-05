@@ -6,14 +6,26 @@
 import type { Position } from './game';
 import {
   createEmptyEquipmentLoadout,
+  type ArrowHeadStyle,
+  type ArrowShaftGrade,
   type EquipmentLoadout,
   type EquipmentLoadoutPatch,
   type FluidSoilBag,
+  type MaterialId,
 } from './items';
 
 export type { Position };
 export type { EquipmentLoadout, EquipmentLoadoutPatch, EquipmentSlotId, ItemSlot } from './items';
 export { EQUIPMENT_SLOTS, createEmptyEquipmentLoadout, formatEquipmentSlotLabel } from './items';
+
+/** Arrow shaft currently occupying a wound (one per body part). */
+export interface LodgedArrow {
+  headStyle: ArrowHeadStyle;
+  shaftGrade: ArrowShaftGrade;
+  material: MaterialId;
+  templateId: string;
+  name: string;
+}
 
 export type Sex = 'M' | 'F';
 
@@ -191,15 +203,31 @@ export interface BodyPartHealth {
   /** Internal bleed severity relative to this area's max bleed rate */
   internalBleed: number;
   /**
-   * Contusion severity 0–1 (blunt / internal bleed residue).
-   * Fades slowly; lowers lewd preferredIntensity on mapped parts.
+   * Contusion severity 0–1 — deposited by internal trauma, persists after
+   * internalBleed clots (day-scale fade; vulnerary accelerates).
+   * Lowers lewd preferredIntensity on mapped parts.
    */
   bruise: number;
+  /**
+   * Lodged arrow shaft (if any). Plugs external bleed; movement aggravates
+   * internal bleed; extract spikes bleed by head style × material.
+   */
+  lodgedArrow: LodgedArrow | null;
   sprain: boolean;
   fracture: boolean;
   broken: boolean;
+  /**
+   * Significant head injury (synced when head.health ≤ concussion threshold).
+   * Meaningful on `head`; ignored on other parts.
+   */
+  concussed: boolean;
   dressed: boolean;
   vulnerary: boolean;
+  /**
+   * Hand pressure on the wound — emergency bleed control.
+   * Weaker than bandage alone; stacks with bandage while held.
+   */
+  directPressure: boolean;
 }
 
 /** Every tracked body area must be present. */
@@ -207,6 +235,21 @@ export type ItemizedHealth = Record<BodyPartId, BodyPartHealth>;
 
 /** Sparse updates when applying damage / treatment. */
 export type ItemizedHealthPatch = Partial<Record<BodyPartId, Partial<BodyPartHealth>>>;
+
+/**
+ * Vital organs — not BodyPartIds. Integrity 1 = intact, 0 = fully compromised.
+ * Pierced by thrust when hard chest armor does not deter.
+ */
+export interface VitalOrgans {
+  heart: number;
+  lungLeft: number;
+  lungRight: number;
+}
+
+export type VitalOrganId = keyof VitalOrgans;
+
+/** Which hand is dominant for weapon limb mapping + offhand skill tax. */
+export type DominantHand = 'left' | 'right';
 
 export interface CombatStats {
   base: BaseCombatStats;
@@ -219,6 +262,23 @@ export interface CombatStats {
   /** Live cover + strike (Battleground mutates this per fighter). */
   currentStance: CombatStance;
   itemizedHealth: ItemizedHealth;
+  /** Heart / lungs integrity. */
+  organs: VitalOrgans;
+  /**
+   * Downed / unable to act (e.g. heart pierce). Not death — leaves room for
+   * magical healing / recovery later.
+   */
+  incapacitated: boolean;
+  /**
+   * Dominant weapon hand. Mainhand attacks use this arm chain; offhand slot
+   * uses the other (with offhand skill tax until trained).
+   */
+  dominantHand: DominantHand;
+  /**
+   * 0–1 progress toward mitigating the offhand skill tax.
+   * 0 → full tax (×0.5); 1 → no tax. Raised by future offhand training.
+   */
+  offhandTraining: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -347,6 +407,11 @@ export interface LewdStatic {
   attractedToGirls: boolean;
   /** Cycle length in **days** (typically 24–32). */
   ovulationCycleLength: number;
+  /**
+   * How strongly arousal/lust climb preferred intensity (default 1).
+   * >1 = heat hungrier for intensity; <1 = stays near baseline longer.
+   */
+  intensityArousalGain?: number;
 }
 
 /** Where a sperm cohort enters / where conception is attributed. */
@@ -502,11 +567,14 @@ export function createDefaultBodyPartHealth(
     bleed: 0,
     internalBleed: 0,
     bruise: 0,
+    lodgedArrow: null,
     sprain: false,
     fracture: false,
     broken: false,
+    concussed: false,
     dressed: false,
     vulnerary: false,
+    directPressure: false,
     ...overrides,
   };
 }
@@ -599,6 +667,17 @@ export function createDefaultBaseCombatStats(
   };
 }
 
+export function createDefaultVitalOrgans(
+  overrides?: Partial<VitalOrgans>
+): VitalOrgans {
+  return {
+    heart: 1,
+    lungLeft: 1,
+    lungRight: 1,
+    ...overrides,
+  };
+}
+
 export function createDefaultCombatStats(options?: {
   base?: Partial<BaseCombatStats>;
   weaponSkill?: WeaponSkillPatch;
@@ -607,6 +686,10 @@ export function createDefaultCombatStats(options?: {
   preferredStrike?: StrikeStanceId;
   currentStance?: Partial<CombatStance>;
   itemizedHealth?: ItemizedHealthPatch;
+  organs?: Partial<VitalOrgans>;
+  incapacitated?: boolean;
+  dominantHand?: DominantHand;
+  offhandTraining?: number;
 }): CombatStats {
   const preferredCover = options?.preferredCover ?? DEFAULT_COVER_STANCE;
   const preferredStrike = options?.preferredStrike ?? DEFAULT_STRIKE_STANCE;
@@ -622,6 +705,13 @@ export function createDefaultCombatStats(options?: {
       currentStance: options?.currentStance,
     }),
     itemizedHealth: createDefaultItemizedHealth(options?.itemizedHealth),
+    organs: createDefaultVitalOrgans(options?.organs),
+    incapacitated: options?.incapacitated ?? false,
+    dominantHand: options?.dominantHand ?? 'right',
+    offhandTraining: Math.max(
+      0,
+      Math.min(1, options?.offhandTraining ?? 0)
+    ),
   };
 }
 
@@ -728,6 +818,10 @@ export type CreateDetailedUnitInput = Omit<
     preferredStrike?: StrikeStanceId;
     currentStance?: Partial<CombatStance>;
     itemizedHealth?: ItemizedHealthPatch;
+    organs?: Partial<VitalOrgans>;
+    incapacitated?: boolean;
+    dominantHand?: DominantHand;
+    offhandTraining?: number;
   };
   socialStats?: {
     static?: Partial<SocialStatic>;

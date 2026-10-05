@@ -11,6 +11,7 @@ import {
   isSoftMaterial,
 } from './combatTuning';
 import { roundToThousandths } from './penalties';
+import { getWeaponTypeFeelMods } from './weaponTypeFeel';
 
 function hardnessClashMultiplier(
   weaponHardness: number,
@@ -32,6 +33,8 @@ export interface ArmorWearContext {
   layerIndex: number;
   /** True if this layer is the outermost protector on this hit. */
   isOutermost: boolean;
+  /** Attacker weapon type — axes chew gear; blunt spares cloth. */
+  attackerWeaponType?: string | null;
 }
 
 /**
@@ -54,6 +57,8 @@ export function calcArmorDurabilityLoss(
 
   let loss: number;
 
+  const weaponFeel = getWeaponTypeFeelMods(ctx.attackerWeaponType);
+
   if (soft) {
     // Soft clothes: wear tracks wound energy more closely (outfit wreck).
     const energy = Math.max(0, ctx.attackerAtkValue);
@@ -61,12 +66,16 @@ export function calcArmorDurabilityLoss(
     if (outfit && ctx.isOutermost) {
       scale *= COMBAT_TUNING.softOutermostOutfitBonus;
     }
+    scale *= weaponFeel.softArmorWearMult;
     loss =
       (energy / sizeMultiplier / matDur) *
       (ctx.attackerWeaponHardness / matDur) *
       scale *
       layerScaling;
-    loss = Math.max(loss, COMBAT_TUNING.softArmorMinChip * layerScaling);
+    // Blunt / low soft mult: allow near-zero shred (no forced min chip).
+    if (weaponFeel.softArmorWearMult >= 0.5) {
+      loss = Math.max(loss, COMBAT_TUNING.softArmorMinChip * layerScaling);
+    }
   } else {
     // Hard armor: √damage pacing + clash when steel meets steel.
     const energy = Math.sqrt(Math.max(0, ctx.attackerAtkValue));
@@ -79,7 +88,8 @@ export function calcArmorDurabilityLoss(
       (ctx.attackerWeaponHardness / matDur) *
       COMBAT_TUNING.hardArmorWearScale *
       clash *
-      layerScaling;
+      layerScaling *
+      weaponFeel.armorWearMult;
   }
 
   // Uncapped base chip — callers clamp to the struck panel (or scalar) remaining.

@@ -17,6 +17,8 @@ import { calcItemWeight } from '../items/resolveItem';
 import { calcBlockStats } from './calcBlockStats';
 import { calcTraumaPenalties } from './traumaFlags';
 import { COMBAT_TUNING } from './combatTuning';
+import { getWeaponTypeFeelMods } from './weaponTypeFeel';
+import { calcSensoryPerformance } from './sensoryPerformance';
 
 function safeLogRatio(stat: number, base: number): number {
   const s = Math.max(1, stat);
@@ -57,6 +59,10 @@ export interface DefenseChanceBreakdown {
   coverDodgeMult: number;
   /** coverHigh → parry bias; else 1 */
   coverParryMult: number;
+  /** Attacker weapon-type flat dodge add (pre-clamp). */
+  weaponDodgeAdd: number;
+  /** Attacker weapon-type flat parry add (pre-clamp). */
+  weaponParryAdd: number;
 }
 
 export interface DefenseChances {
@@ -132,6 +138,10 @@ export function calcDefenseChances(input: DefenseChanceInput): DefenseChances {
   const bloodDodge = bloodPen.dodge;
   dodge *= bloodDodge;
 
+  const sensory = calcSensoryPerformance(itemized);
+  // Concussion dulls trained reactions; ear damage also hurts balance on dodge.
+  dodge *= sensory.skillMult * (0.65 + 0.35 * sensory.earFactor);
+
   // --- Parry base (old) ---
   let baseParry = 0;
   let gripMult = 1;
@@ -153,6 +163,8 @@ export function calcDefenseChances(input: DefenseChanceInput): DefenseChances {
     baseParry * weightPenaltyParry * healthPenaltyParry * staminaPenalty * gripMult;
   const gearParry = sumGearChance(unit, itemsById, 'parry');
   parry += gearParry;
+  // Parry is skill-gated — concussion impairs trained blade work.
+  parry *= sensory.skillMult;
 
   // --- Stance fold-in ---
   let matchup: StanceMatchupResult | null = null;
@@ -190,7 +202,7 @@ export function calcDefenseChances(input: DefenseChanceInput): DefenseChances {
     ? 0
     : roundToThousandths(Math.max(0, Math.min(0.95, parry)));
 
-  const trauma = calcTraumaPenalties(itemized);
+  const trauma = calcTraumaPenalties(itemized, unit.combatStats.organs);
   dodge = roundToThousandths(
     Math.max(
       0,
@@ -203,6 +215,19 @@ export function calcDefenseChances(input: DefenseChanceInput): DefenseChances {
         0,
         Math.min(0.95, parry * trauma.parryMult * trauma.globalCombatMult)
       )
+    );
+  }
+
+  // Attacker weapon-type flat shifts on the finished chance (then re-clamp).
+  const weaponFeel = getWeaponTypeFeelMods(input.attackerWeaponType);
+  const weaponDodgeAdd = weaponFeel.dodgeChanceAdd;
+  const weaponParryAdd = unequipped ? 0 : weaponFeel.parryChanceAdd;
+  dodge = roundToThousandths(
+    Math.max(0, Math.min(0.95, dodge + weaponDodgeAdd))
+  );
+  if (!unequipped) {
+    parry = roundToThousandths(
+      Math.max(0, Math.min(0.95, parry + weaponParryAdd))
     );
   }
 
@@ -231,6 +256,8 @@ export function calcDefenseChances(input: DefenseChanceInput): DefenseChances {
       parryWindowFactor: roundToThousandths(parryWindowFactor),
       coverDodgeMult,
       coverParryMult,
+      weaponDodgeAdd: roundToThousandths(weaponDodgeAdd),
+      weaponParryAdd: roundToThousandths(weaponParryAdd),
     },
   };
 }

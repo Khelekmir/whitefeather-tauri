@@ -121,6 +121,129 @@ export function gradeOuterScale(
   };
 }
 
+export type AttackTimingZone =
+  | 'miss'
+  | 'dodge'
+  | 'parry'
+  | 'hit'
+  | 'crit';
+
+export interface NpcDefenseZoneGrade {
+  outcome: AttackTimingZone;
+  missKind: RhythmMissKind;
+  error: number;
+  /** Position in hit band [0,1] early→late (only if in hit band). */
+  hitU: number | null;
+  /** Position in crit band [0,1] (only if in crit band). */
+  critU: number | null;
+  dodgeChance: number;
+  parryChance: number;
+}
+
+/**
+ * Map press scale into miss / NPC dodge / NPC parry / hit / crit using
+ * defender chances carved from hit-band edges (and parry from crit edges).
+ *
+ * Hit band (u = 0 early outer → 1 late outer):
+ *   [0, D/2) dodge · [D/2, D/2+P/2) parry · middle clean · symmetric late
+ * Crit band: [0, P/2) and (1-P/2, 1] → parry; middle → crit.
+ * If D+P > 1, both are scaled down proportionally.
+ */
+export function gradeOuterScaleWithNpcDefense(
+  scale: number,
+  window: RhythmWindow,
+  dodgeChance: number,
+  parryChance: number
+): NpcDefenseZoneGrade {
+  const error = scale - 1;
+  const abs = Math.abs(error);
+  let d = Math.max(0, Math.min(1, dodgeChance));
+  let p = Math.max(0, Math.min(1, parryChance));
+  if (d + p > 1) {
+    const s = 1 / (d + p);
+    d *= s;
+    p *= s;
+  }
+
+  if (abs > window.hitBand) {
+    return {
+      outcome: 'miss',
+      missKind: error > 0 ? 'early' : 'late',
+      error,
+      hitU: null,
+      critU: null,
+      dodgeChance: d,
+      parryChance: p,
+    };
+  }
+
+  // Crit window: only parry eats edges (not dodge).
+  if (abs <= window.critBand && window.critBand > 1e-9) {
+    const critU = (error + window.critBand) / (2 * window.critBand);
+    const halfP = p / 2;
+    if (p > 0 && (critU < halfP || critU > 1 - halfP)) {
+      return {
+        outcome: 'parry',
+        missKind: 'none',
+        error,
+        hitU: (error + window.hitBand) / (2 * window.hitBand),
+        critU,
+        dodgeChance: d,
+        parryChance: p,
+      };
+    }
+    return {
+      outcome: 'crit',
+      missKind: 'none',
+      error,
+      hitU: (error + window.hitBand) / (2 * window.hitBand),
+      critU,
+      dodgeChance: d,
+      parryChance: p,
+    };
+  }
+
+  // Hit band outside crit: dodge at outer edges, parry adjacent inward.
+  const hitU = (error + window.hitBand) / (2 * window.hitBand);
+  const halfD = d / 2;
+  const halfP = p / 2;
+  if (d > 0 && (hitU < halfD || hitU > 1 - halfD)) {
+    return {
+      outcome: 'dodge',
+      missKind: 'none',
+      error,
+      hitU,
+      critU: null,
+      dodgeChance: d,
+      parryChance: p,
+    };
+  }
+  if (
+    p > 0 &&
+    ((hitU >= halfD && hitU < halfD + halfP) ||
+      (hitU > 1 - halfD - halfP && hitU <= 1 - halfD))
+  ) {
+    return {
+      outcome: 'parry',
+      missKind: 'none',
+      error,
+      hitU,
+      critU: null,
+      dodgeChance: d,
+      parryChance: p,
+    };
+  }
+  return {
+    outcome: 'hit',
+    missKind: 'none',
+    error,
+    hitU,
+    critU: null,
+    dodgeChance: d,
+    parryChance: p,
+  };
+}
+
 /** Grade a press at normalized time t. */
 export function gradeTiming(
   t: number,
@@ -180,4 +303,27 @@ export function rhythmGradeLabel(grade: RhythmGrade): string {
     case 'miss':
       return 'MISS';
   }
+}
+
+/**
+ * Defense QTE labels — avoid attack-flavored "HIT"/"CRIT".
+ * Maps timing bands: crit → precise/clean, hit → sloppy/edge.
+ */
+export function defenseRhythmGradeLabel(
+  verb: 'dodge' | 'parry' | 'block',
+  grade: RhythmGrade
+): string {
+  if (verb === 'dodge') {
+    if (grade === 'crit') return 'PRECISE DODGE';
+    if (grade === 'hit') return 'SLOPPY DODGE';
+    return 'DODGE FAIL';
+  }
+  if (verb === 'block') {
+    if (grade === 'crit') return 'REDIRECTING BLOCK';
+    if (grade === 'hit') return 'FLAT BLOCK';
+    return 'BLOCK FAIL';
+  }
+  if (grade === 'crit') return 'CLEAN PARRY';
+  if (grade === 'hit') return 'EDGE PARRY';
+  return 'PARRY FAIL';
 }

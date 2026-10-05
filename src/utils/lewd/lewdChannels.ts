@@ -37,6 +37,7 @@ import { lewdTargetToBodyParts } from '../../data/lewd/lewdPartCoverage';
 import { maxBruiseOnParts } from '../combat/bruise';
 import { getLewdAction, getLewdBit, toLewdSexKey } from './lewdCatalogAccess';
 import { LEWD_TUNING as T } from './lewdTuning';
+import { warpedPreferredIntensity } from './preferredIntensityWarp';
 
 /** One concurrent stim locus (hand, mouth, genitals, …). */
 export interface LewdChannel {
@@ -134,7 +135,14 @@ export interface ResolvedChannel {
   actorName: string;
   stimulation: StimulationResult;
   preference: number;
+  /** Bruise-adjusted baseline preferred intensity (cold sweet spot). */
+  basePreferredIntensity: number;
+  /** Heat-warped preferred intensity used for stim match / overstep. */
   preferredIntensity: number;
+  /** 0–1 heat that drove the warp (encounter A + lust share). */
+  intensityHeat01: number;
+  /** Max ranks heat can add for this character. */
+  intensityHotSpan: number;
   maxIntensity: number;
   erogenous: number;
   psychQuality: number;
@@ -230,21 +238,28 @@ function resolveOneChannel(
 
   const partRow = recipient.lewdStats.itemizedLewd[channel.targetPart];
   const preference = partRow?.preference ?? 5;
-  const basePreferredIntensity = partRow?.prefIntensity ?? 3;
+  const authoredPreferred = partRow?.prefIntensity ?? 3;
   const maxIntensity = partRow?.maxIntensity ?? 8;
   // Combat bruise on mapped body parts lowers what feels “attuned.”
   const bruiseSev = maxBruiseOnParts(
     recipient.combatStats.itemizedHealth,
     lewdTargetToBodyParts(channel.targetPart)
   );
-  const preferredIntensity = Math.max(
-    0.5,
+  const basePreferredIntensity = Math.max(
+    T.intensityWarp.minPreferred,
     Math.min(
       maxIntensity,
-      basePreferredIntensity -
-        bruiseSev * T.bruisePrefIntensityPenalty
+      authoredPreferred - bruiseSev * T.bruisePrefIntensityPenalty
     )
   );
+  // Arousal (+ lust share) climbs the sweet spot; maxIntensity stays fixed.
+  const intensityWarp = warpedPreferredIntensity({
+    basePreferred: basePreferredIntensity,
+    maxIntensity,
+    unit: recipient,
+    encounterArousal: currentArousal,
+  });
+  const preferredIntensity = intensityWarp.preferredNow;
   const sensMult = partRow?.sensitivity ?? 1;
   const catalogSens = targetBit.sensitivity;
   const sensitivity = catalogSens * sensMult;
@@ -426,7 +441,10 @@ function resolveOneChannel(
     actorName: actorBit?.name ?? channel.actorPart,
     stimulation: stim,
     preference,
+    basePreferredIntensity,
     preferredIntensity,
+    intensityHeat01: intensityWarp.heat01,
+    intensityHotSpan: intensityWarp.hotSpan,
     maxIntensity,
     erogenous,
     psychQuality,

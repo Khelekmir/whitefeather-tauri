@@ -34,7 +34,10 @@ import {
   widmarkR,
 } from './utils/social/bloodAlcohol';
 import type { Unit as DetailedUnit } from './types/characters';
-import { bodilyStateFromHormones } from './utils/lewd/cycleBodilyState';
+import {
+  bodilyStateFromHormones,
+  feltWetness,
+} from './utils/lewd/cycleBodilyState';
 import { describeCycleShift } from './utils/lewd/cycleShift';
 import {
   advanceReproduction,
@@ -494,12 +497,19 @@ function LewdPanel({ unit }: { unit: DetailedUnit }) {
           }
           const fertile = isInFertileWindow(h, s.ovulationCycleLength);
           const body = bodilyStateFromHormones(h, s.ovulationCycleLength);
+          const wet = feltWetness(body.wetness01, {
+            lust: unit.lewdStats.dynamic.lust ?? 0,
+          });
           const soil = deriveSoilCues(unit);
+          const wetLabel = wet.oversaturated
+            ? `Wet ${(wet.feltWetness * 100).toFixed(0)}% oversat`
+            : `Wet ${(wet.feltWetness * 100).toFixed(0)}% (ready ${(wet.readiness01 * 100).toFixed(0)}%)`;
           return (
             <>
               <Pill>{formatCycleLabel(h, s.ovulationCycleLength)}</Pill>
               <Pill>{`Mucus ${body.mucusKind}`}</Pill>
-              <Pill>{`Wet ${(body.wetness01 * 100).toFixed(0)}%`}</Pill>
+              <Pill>{wetLabel}</Pill>
+              {soil.outerSeep ? <Pill tone="hot">Outer seep</Pill> : null}
               <Pill>{`E ${h.estrogen.toFixed(1)} · T ${h.testosterone.toFixed(2)} · P ${h.progesterone.toFixed(1)}`}</Pill>
               {fertile ? <Pill tone="hot">Fertile window</Pill> : null}
               {soil.soiledPanty ? <Pill tone="hot">Soiled panty</Pill> : null}

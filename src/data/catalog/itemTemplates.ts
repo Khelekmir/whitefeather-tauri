@@ -82,6 +82,7 @@ export const ITEM_TEMPLATES: Record<string, ItemTemplate> = {
     slot: 'shoulder',
     description: 'House Caelin steel shoulder armor.',
     material: 'highGradeSteel',
+    armorClass: 'plate',
     maxDurability: 1,
   },
   'caelin-breastplate': {
@@ -92,6 +93,7 @@ export const ITEM_TEMPLATES: Record<string, ItemTemplate> = {
     description:
       'A large Caelin breastplate. Extends far enough to guard the upper and lower belly.',
     material: 'highGradeSteel',
+    armorClass: 'plate',
     sizePreset: 'large',
     maxDurability: 1,
   },
@@ -102,6 +104,7 @@ export const ITEM_TEMPLATES: Record<string, ItemTemplate> = {
     slot: 'wrist',
     description: 'High-grade steel forearm guards.',
     material: 'highGradeSteel',
+    armorClass: 'plate',
     maxDurability: 1,
   },
   'steel-greaves': {
@@ -111,6 +114,51 @@ export const ITEM_TEMPLATES: Record<string, ItemTemplate> = {
     slot: 'shin',
     description: 'High-grade steel greaves.',
     material: 'highGradeSteel',
+    armorClass: 'plate',
+    maxDurability: 1,
+  },
+  'iron-chain-hauberk': {
+    templateId: 'iron-chain-hauberk',
+    name: 'Iron Chain Hauberk',
+    itemType: 'armor',
+    slot: 'chest',
+    description:
+      'A riveted iron mail shirt — sheds cuts and most arrows; bodkins still bite.',
+    material: 'iron',
+    armorClass: 'chainmail',
+    // Explicit map so shoulders/upper arms count (slot listed in ARMOR_LAYERS).
+    coverage: {
+      chestLeft: 1,
+      chestRight: 1,
+      stomachUpper: 0.75,
+      stomachLower: 0.35,
+      obliqueLeft: 0.65,
+      obliqueRight: 0.65,
+      shoulderLeft: 0.85,
+      shoulderRight: 0.85,
+      upperArmLeft: 0.55,
+      upperArmRight: 0.55,
+    },
+    maxDurability: 1,
+  },
+  'hardened-leather-jack': {
+    templateId: 'hardened-leather-jack',
+    name: 'Hardened Leather Jack',
+    itemType: 'armor',
+    slot: 'chest',
+    description:
+      'Boiled leather torso armor — turns a slash, little help against points or bodkins.',
+    material: 'leather',
+    armorClass: 'leather',
+    coverage: {
+      chestLeft: 1,
+      chestRight: 1,
+      stomachUpper: 0.7,
+      obliqueLeft: 0.55,
+      obliqueRight: 0.55,
+      shoulderLeft: 0.5,
+      shoulderRight: 0.5,
+    },
     maxDurability: 1,
   },
 
@@ -390,6 +438,7 @@ export const ITEM_TEMPLATES: Record<string, ItemTemplate> = {
     slot: 'head',
     description: 'An enclosed steel helm covering head, face, and ears.',
     material: 'highGradeSteel',
+    armorClass: 'plate',
     headwearStyle: 'fullHelmet',
     maxDurability: 1,
   },
@@ -400,6 +449,7 @@ export const ITEM_TEMPLATES: Record<string, ItemTemplate> = {
     slot: 'head',
     description: 'An open-faced steel half-helm — scalp and partial face protection.',
     material: 'highGradeSteel',
+    armorClass: 'plate',
     headwearStyle: 'halfHelm',
     maxDurability: 1,
   },
@@ -410,6 +460,7 @@ export const ITEM_TEMPLATES: Record<string, ItemTemplate> = {
     slot: 'shoulder',
     description: 'Azure plates of Ilian steel, embossed with silver inlays.',
     material: 'springSteel',
+    armorClass: 'plate',
     maxDurability: 1,
   },
   'ilian-breastplate': {
@@ -419,6 +470,7 @@ export const ITEM_TEMPLATES: Record<string, ItemTemplate> = {
     slot: 'chest',
     description: 'An azure colored plate of Ilian steel, embossed with silver inlays.',
     material: 'springSteel',
+    armorClass: 'plate',
     sizePreset: 'medium',
     maxDurability: 1,
   },
@@ -634,6 +686,7 @@ export const ITEM_TEMPLATES: Record<string, ItemTemplate> = {
     description:
       'A small breastplate covering the chest only — leaves the stomach exposed.',
     material: 'lowGradeSteel',
+    armorClass: 'plate',
     sizePreset: 'small',
     maxDurability: 1,
   },
@@ -651,6 +704,21 @@ export const ITEM_TEMPLATES: Record<string, ItemTemplate> = {
     combatBonus: {
       chance: { parry: 0, dodge: 0, block: 0, hit: 0, critical: 0 },
       value: { block: 0, damage: 0, critical: 0, effectiveMultiplier: 1 },
+    },
+  },
+  'steel-dagger': {
+    templateId: 'steel-dagger',
+    name: 'Steel Dagger',
+    itemType: 'weapon',
+    slot: 'mainhand',
+    description:
+      'A keen fighting dagger — short thrust reach, lethal in the right hands.',
+    material: 'lowGradeSteel',
+    weaponType: 'dagger',
+    maxDurability: 1,
+    combatBonus: {
+      chance: { parry: 0.02, dodge: 0, block: 0, hit: 0.02, critical: 0.03 },
+      value: { block: 0, damage: 0.15, critical: 0.05, effectiveMultiplier: 1 },
     },
   },
   'common-dagger': {
@@ -684,6 +752,37 @@ export const ITEM_TEMPLATES: Record<string, ItemTemplate> = {
     weaponType: '1hSword',
     maxDurability: 1,
   },
+  'bern-hand-axe': {
+    templateId: 'bern-hand-axe',
+    name: 'Bern Hand Axe',
+    itemType: 'weapon',
+    slot: 'mainhand',
+    description:
+      'A heavy village axe from the Bern hinterland — chopping edge, no polish. Dorcas\'s workhorse.',
+    material: 'iron',
+    weaponType: '1hAxe',
+    flags: { twoHandOptional: true },
+    maxDurability: 1,
+    combatBonus: {
+      chance: { parry: 0, dodge: 0, block: 0, hit: 0.01, critical: 0.01 },
+      value: { block: 0, damage: 0.2, critical: 0.02, effectiveMultiplier: 1 },
+    },
+  },
+  'brigand-greataxe': {
+    templateId: 'brigand-greataxe',
+    name: 'Brigand Greataxe',
+    itemType: 'weapon',
+    slot: 'mainhand',
+    description:
+      'A scavenged two-handed axe — heavy head, rough haft, meant for splitting shields and doors.',
+    material: 'iron',
+    weaponType: '2hAxe',
+    maxDurability: 1,
+    combatBonus: {
+      chance: { parry: 0, dodge: 0, block: 0, hit: 0, critical: 0.02 },
+      value: { block: 0, damage: 0.35, critical: 0.03, effectiveMultiplier: 1 },
+    },
+  },
   'caelin-lance': {
     templateId: 'caelin-lance',
     name: 'Caelin Lance',
@@ -692,6 +791,28 @@ export const ITEM_TEMPLATES: Record<string, ItemTemplate> = {
     description: 'A cavalry lance of House Caelin.',
     material: 'highGradeSteel',
     weaponType: 'lance',
+    maxDurability: 1,
+  },
+  'pherae-shortbow': {
+    templateId: 'pherae-shortbow',
+    name: 'Pherae Shortbow',
+    itemType: 'weapon',
+    slot: 'mainhand',
+    description:
+      'A reliable shortbow from Pherae — Wil\'s preferred hunting and war bow.',
+    material: 'wood',
+    weaponType: 'shortbow',
+    maxDurability: 1,
+  },
+  'araphen-hunting-bow': {
+    templateId: 'araphen-hunting-bow',
+    name: 'Araphen Hunting Bow',
+    itemType: 'weapon',
+    slot: 'mainhand',
+    description:
+      'A refined short recurve favored by Araphen gentry for the hunt — Sapphira\'s practice bow.',
+    material: 'wood',
+    weaponType: 'recurveBow',
     maxDurability: 1,
   },
   'caelin-steel-heater': {
@@ -726,6 +847,64 @@ export const ITEM_TEMPLATES: Record<string, ItemTemplate> = {
       'Herbal salve. Rapidly accelerates natural healing and helps wounds clot.',
     material: 'cloth',
     maxDurability: 1,
+  },
+
+  // —— Arrows (shaft × head style × head material; maintenance/crafting later) ——
+  'arrow-practice': {
+    templateId: 'arrow-practice',
+    name: 'Practice Arrow',
+    itemType: 'consumable',
+    slot: 'trinket2',
+    description:
+      'Light shaft with a blunt wood practice head — soft impact, gentle to extract.',
+    material: 'wood',
+    maxDurability: 1,
+    shaftGrade: 'light',
+    arrowHeadStyle: 'practice',
+    projectileMass: 0.75,
+    tipFactor: 0.68, // 0.85 style × ~0.8 wood tip mult
+  },
+  'arrow-hunting': {
+    templateId: 'arrow-hunting',
+    name: 'Hunting Arrow',
+    itemType: 'consumable',
+    slot: 'trinket2',
+    description:
+      'Mid shaft with an iron hunting head — field standard; nasty if pulled carelessly.',
+    material: 'iron',
+    maxDurability: 1,
+    shaftGrade: 'mid',
+    arrowHeadStyle: 'hunting',
+    projectileMass: 1,
+    tipFactor: 0.9975, // 1.05 × (0.7+0.05×5)
+  },
+  'arrow-war': {
+    templateId: 'arrow-war',
+    name: 'War Arrow',
+    itemType: 'consumable',
+    slot: 'trinket2',
+    description:
+      'Heavy shaft with a steel war head — hard hit; plugs while in, tears on the way out.',
+    material: 'lowGradeSteel',
+    maxDurability: 1,
+    shaftGrade: 'heavy',
+    arrowHeadStyle: 'war',
+    projectileMass: 1.3,
+    tipFactor: 1.15, // 1.15 × (0.7+0.05×6) ≈ 1.15×1.0
+  },
+  'arrow-bodkin': {
+    templateId: 'arrow-bodkin',
+    name: 'Bodkin Arrow',
+    itemType: 'consumable',
+    slot: 'trinket2',
+    description:
+      'Mid shaft with a narrow steel bodkin — armor-piercing tip; pulls cleaner than a broadhead.',
+    material: 'lowGradeSteel',
+    maxDurability: 1,
+    shaftGrade: 'mid',
+    arrowHeadStyle: 'bodkin',
+    projectileMass: 1,
+    tipFactor: 1.22, // 1.22 × ~1.0 steel tip mult
   },
 };
 

@@ -13,7 +13,13 @@ export type CombatCastId =
   | 'unit_lyn'
   | 'unit_kent'
   | 'unit_serra'
-  | 'unit_florina';
+  | 'unit_florina'
+  | 'unit_wil'
+  | 'unit_sapphira'
+  | 'unit_matthew'
+  | 'unit_dorcas'
+  | 'unit_natalie'
+  | 'unit_brigand';
 
 type SlotTemplateMap = Partial<Record<ItemSlot, string>>;
 
@@ -38,8 +44,8 @@ const STARTER_LOADOUTS: Record<CombatCastId, SlotTemplateMap> = {
     underwear: 'fine-linen-underwear',
     leg: 'doeskin-wool-pants',
     foot: 'doeskin-leather-boots',
+    // Decorative dagger only — no dual-wield at outset (empty offhand for pressure/care).
     mainhand: 'decorative-dagger',
-    offhand: 'common-dagger',
   },
   unit_sain: {
     head: 'linen-headband',
@@ -107,6 +113,80 @@ const STARTER_LOADOUTS: Record<CombatCastId, SlotTemplateMap> = {
     foot: 'ilian-leather-riding-boots',
     mainhand: 'ilian-lance',
   },
+  // Archer — light kit, two-hand shortbow (empty offhand).
+  unit_wil: {
+    head: 'linen-headband',
+    back: 'wool-cloak',
+    shirt: 'linen-tunic',
+    undershirt: 'male-linen-undershirt',
+    hand: 'doeskin-gloves',
+    waist: 'leather-belt',
+    underwear: 'linen-underwear',
+    leg: 'doeskin-wool-pants',
+    foot: 'doeskin-leather-boots',
+    mainhand: 'pherae-shortbow',
+  },
+  // Noble archer — soft travel clothes + hunting recurve.
+  unit_sapphira: {
+    head: 'silk-twintail-ties',
+    back: 'wool-cloak',
+    shirt: 'fine-linen-dress',
+    undershirt: 'cotton-chemise',
+    hand: 'fine-linen-gloves',
+    waist: 'fine-linen-sash',
+    underwear: 'cotton-underwear',
+    foot: 'soft-leather-shoes',
+    mainhand: 'araphen-hunting-bow',
+  },
+  // Dagger tester — soft kit, no breastplate (organ pierce lab).
+  unit_matthew: {
+    head: 'linen-headband',
+    back: 'wool-cloak',
+    shirt: 'linen-tunic',
+    undershirt: 'male-linen-undershirt',
+    hand: 'doeskin-gloves',
+    waist: 'leather-belt',
+    underwear: 'linen-underwear',
+    leg: 'doeskin-wool-pants',
+    foot: 'doeskin-leather-boots',
+    mainhand: 'steel-dagger',
+  },
+  // Village fighter — soft leather/wool kit, iron hand axe (empty offhand → two-hand grip).
+  unit_dorcas: {
+    head: 'linen-headband',
+    back: 'wool-cloak',
+    shirt: 'linen-tunic',
+    undershirt: 'male-linen-undershirt',
+    hand: 'leather-gloves',
+    waist: 'leather-belt',
+    underwear: 'linen-underwear',
+    leg: 'wool-pants',
+    foot: 'leather-boots',
+    mainhand: 'bern-hand-axe',
+  },
+  // Civilian caregiver — soft dress, no weapon; limp-friendly soft shoes.
+  unit_natalie: {
+    back: 'wool-cloak',
+    shirt: 'linen-tunic-sand',
+    undershirt: 'cotton-chemise',
+    waist: 'linen-sash',
+    underwear: 'cotton-underwear',
+    foot: 'soft-leather-shoes',
+  },
+  // Generic brigand — mail hauberk + ragged soft kit, two-hand greataxe (mail glance tester).
+  unit_brigand: {
+    head: 'linen-headband',
+    back: 'wool-cloak',
+    chest: 'iron-chain-hauberk',
+    shirt: 'linen-tunic',
+    undershirt: 'male-linen-undershirt',
+    hand: 'leather-gloves',
+    waist: 'leather-belt',
+    underwear: 'linen-underwear',
+    leg: 'wool-pants',
+    foot: 'leather-boots',
+    mainhand: 'brigand-greataxe',
+  },
 };
 
 /**
@@ -164,6 +244,54 @@ const STARTER_WEAR: Record<CombatCastId, SlotWearMap> = {
     shirt: 0.88, // short tunic
     hand: 0.9,
   },
+  // Road marches + string wear
+  unit_wil: {
+    foot: 0.76,
+    hand: 0.84,
+    mainhand: 0.8, // bow limbs worked
+    shirt: 0.9,
+    back: 0.93,
+  },
+  // Estate roads + practice yard
+  unit_sapphira: {
+    foot: 0.82,
+    shirt: 0.88,
+    mainhand: 0.86,
+    back: 0.94,
+  },
+  // Knife work + road wear
+  unit_matthew: {
+    foot: 0.8,
+    hand: 0.86,
+    mainhand: 0.88,
+    shirt: 0.91,
+    back: 0.94,
+  },
+  // Village labor + axe work — boots and gloves chewed, axe edge used
+  unit_dorcas: {
+    foot: 0.72,
+    hand: 0.78,
+    mainhand: 0.7,
+    leg: 0.84,
+    shirt: 0.86,
+    back: 0.9,
+  },
+  // Quiet village wear — shoes favored for the limp, hem dust
+  unit_natalie: {
+    foot: 0.7,
+    shirt: 0.88,
+    back: 0.94,
+  },
+  // Road ambush kit — filthy clothes, scored mail, nicked greataxe
+  unit_brigand: {
+    foot: 0.65,
+    hand: 0.7,
+    mainhand: 0.62,
+    chest: 0.78,
+    leg: 0.75,
+    shirt: 0.78,
+    back: 0.82,
+  },
 };
 
 export interface CharacterInventoryKit {
@@ -183,6 +311,46 @@ const STARTER_CARE: { templateId: string; count: number }[] = [
   { templateId: 'field-bandage', count: 2 },
   { templateId: 'vulnerary-salve', count: 1 },
 ];
+
+/**
+ * Extra care stock for caregivers (Natalie). Counts stack on top of STARTER_CARE.
+ */
+const STARTER_CARE_EXTRA: Partial<
+  Record<CombatCastId, { templateId: string; count: number }[]>
+> = {
+  unit_natalie: [
+    { templateId: 'field-bandage', count: 6 },
+    { templateId: 'vulnerary-salve', count: 3 },
+  ],
+};
+
+/** Archer ammo seed (owned bank). */
+const STARTER_ARROWS: { templateId: string; count: number }[] = [
+  { templateId: 'arrow-hunting', count: 12 },
+  { templateId: 'arrow-practice', count: 5 },
+  { templateId: 'arrow-war', count: 5 },
+  { templateId: 'arrow-bodkin', count: 5 },
+];
+
+const ARCHER_UNITS = new Set<CombatCastId>(['unit_wil', 'unit_sapphira']);
+
+function addCareStock(
+  unitId: CombatCastId,
+  items: Record<string, Item>,
+  packs: { templateId: string; count: number }[],
+  idPrefix: string
+) {
+  for (const { templateId, count } of packs) {
+    for (let i = 0; i < count; i += 1) {
+      const instanceId = `${unitId}__${idPrefix}_${templateId}_${i + 1}`;
+      items[instanceId] = createItemFromTemplate(templateId, {
+        id: instanceId,
+        ownerId: unitId,
+        equippedSlot: null,
+      });
+    }
+  }
+}
 
 function buildKit(unitId: CombatCastId): CharacterInventoryKit {
   const map = STARTER_LOADOUTS[unitId];
@@ -214,14 +382,22 @@ function buildKit(unitId: CombatCastId): CharacterInventoryKit {
     equipPatch[slot] = instanceId;
   }
 
-  for (const { templateId, count } of STARTER_CARE) {
-    for (let i = 0; i < count; i += 1) {
-      const instanceId = `${unitId}__care_${templateId}_${i + 1}`;
-      items[instanceId] = createItemFromTemplate(templateId, {
-        id: instanceId,
-        ownerId: unitId,
-        equippedSlot: null,
-      });
+  addCareStock(unitId, items, STARTER_CARE, 'care');
+  const extraCare = STARTER_CARE_EXTRA[unitId];
+  if (extraCare) {
+    addCareStock(unitId, items, extraCare, 'care_extra');
+  }
+
+  if (ARCHER_UNITS.has(unitId)) {
+    for (const { templateId, count } of STARTER_ARROWS) {
+      for (let i = 0; i < count; i += 1) {
+        const instanceId = `${unitId}__ammo_${templateId}_${i + 1}`;
+        items[instanceId] = createItemFromTemplate(templateId, {
+          id: instanceId,
+          ownerId: unitId,
+          equippedSlot: null,
+        });
+      }
     }
   }
 
@@ -239,6 +415,12 @@ export const COMBAT_CAST_INVENTORIES: Record<CombatCastId, CharacterInventoryKit
   unit_kent: buildKit('unit_kent'),
   unit_serra: buildKit('unit_serra'),
   unit_florina: buildKit('unit_florina'),
+  unit_wil: buildKit('unit_wil'),
+  unit_sapphira: buildKit('unit_sapphira'),
+  unit_matthew: buildKit('unit_matthew'),
+  unit_dorcas: buildKit('unit_dorcas'),
+  unit_natalie: buildKit('unit_natalie'),
+  unit_brigand: buildKit('unit_brigand'),
 };
 
 /** Flat bank of every starter instance (for lookup by id). */

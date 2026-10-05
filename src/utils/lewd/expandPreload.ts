@@ -41,6 +41,7 @@ function phaseToChannels(
       intensity,
       durationSeconds,
       remainingSeconds: durationSeconds,
+      ...(locus.clothingAccess ? { clothingAccess: locus.clothingAccess } : {}),
     };
   });
 }

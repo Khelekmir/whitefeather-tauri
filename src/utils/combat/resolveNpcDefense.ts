@@ -32,11 +32,55 @@ function cloneFighter(f: FighterState): FighterState {
   };
 }
 
+/** Apply a known dodge/parry (QTE band zoning) — no RNG. */
+export function applyNpcDefenseOutcome(
+  attackerIn: FighterState,
+  defenderIn: FighterState,
+  outcome: 'dodge' | 'parry',
+  chances: DefenseChances,
+  detail?: string
+): NpcDefenseResult {
+  const trauma = calcTraumaPenalties(
+    defenderIn.unit.combatStats.itemizedHealth,
+    defenderIn.unit.combatStats.organs
+  );
+  const defender = cloneFighter(defenderIn);
+  const log: string[] = [];
+  const detailBit = detail ? `, ${detail}` : '';
+
+  if (outcome === 'dodge') {
+    const cost = calcDodgeStamina('precise', trauma.staminaDrainMult);
+    const b = defender.unit.combatStats.base;
+    b.staminaCurrent = Math.max(
+      0,
+      roundToThousandths(b.staminaCurrent - cost)
+    );
+    log.push(
+      `${defender.unit.name} dodges ${attackerIn.unit.name}'s attack (QTE edge zone · dodge ${(chances.dodge * 100).toFixed(0)}%${detailBit}). Stamina −${cost} → ${b.staminaCurrent}.`
+    );
+    return { outcome: 'dodge', chances, defender, log, roll: 0 };
+  }
+
+  const cost = calcParryStamina({
+    quality: 'clean',
+    attackerCon: attackerIn.unit.combatStats.base.constitution,
+    defenderCon: defender.unit.combatStats.base.constitution,
+    staminaDrainMult: trauma.staminaDrainMult,
+  });
+  const b = defender.unit.combatStats.base;
+  b.staminaCurrent = Math.max(
+    0,
+    roundToThousandths(b.staminaCurrent - cost)
+  );
+  log.push(
+    `${defender.unit.name} parries ${attackerIn.unit.name}'s attack (QTE band zone · parry ${(chances.parry * 100).toFixed(0)}%${detailBit}). Stamina −${cost} → ${b.staminaCurrent}.`
+  );
+  return { outcome: 'parry', chances, defender, log, roll: 0 };
+}
+
 /**
- * NPC chance-based defense gate (old CombatEngine order: dodge, else parry).
+ * NPC chance-based defense gate (bypass / non-QTE path).
  * Independent rolls: dodge first; if it fails, separate parry roll.
- * On success: spend defender stamina, no damage path.
- * On none: caller proceeds to resolveBasicAttack.
  */
 export function resolveNpcDefense(
   attackerIn: FighterState,
@@ -48,7 +92,8 @@ export function resolveNpcDefense(
   const log: string[] = [];
 
   const trauma = calcTraumaPenalties(
-    defenderIn.unit.combatStats.itemizedHealth
+    defenderIn.unit.combatStats.itemizedHealth,
+    defenderIn.unit.combatStats.organs
   );
   const dodgeRoll = rng();
   if (dodgeRoll < chances.dodge) {

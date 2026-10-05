@@ -14,7 +14,12 @@ import {
   type BleedSplit,
 } from './bleedSplit';
 import { applyBruiseFromHit } from './bruise';
+import {
+  careExternalFlowMult,
+  hypovolemiaFlowMult,
+} from './bloodVolume';
 import { COMBAT_TUNING } from './combatTuning';
+import { lodgedExternalBleedMult } from './lodgedArrow';
 import { roundToThousandths } from './penalties';
 
 export interface DerivedHealth {
@@ -45,8 +50,26 @@ export interface DerivedHealth {
 
 type BleedState = Pick<
   BodyPartHealth,
-  'health' | 'bleed' | 'internalBleed' | 'dressed' | 'vulnerary'
+  | 'health'
+  | 'bleed'
+  | 'internalBleed'
+  | 'dressed'
+  | 'vulnerary'
+  | 'directPressure'
+  | 'lodgedArrow'
 >;
+
+/**
+ * Ruined + undressed + no pressure: cannot clot; intensity may relapse
+ * upward (see ruinedBleedRelapsePerMinute) but is not snapped to 1.
+ */
+export function isExternalBleedPinned(state: BleedState): boolean {
+  return (
+    Math.max(0, state.health) <= 0 &&
+    !state.dressed &&
+    !state.directPressure
+  );
+}
 
 /**
  * Compile pool HP from itemized part *health* (wounds), with a soft blood-vitality factor.
@@ -100,13 +123,10 @@ function partBaseBleedRate(part: BodyPartId): number {
   );
 }
 
-/** External open-bleed intensity (0–1). Ruined + undressed pins to max. */
+/** External open-bleed intensity (0–1). Uses stored bleed (no snap-to-max). */
 export function getExternalBleedIntensity(state: BleedState): number {
   const health = Math.max(0, Math.min(1, state.health));
   const bleed = Math.max(0, Math.min(1, state.bleed ?? 0));
-  if (health <= 0 && !state.dressed) {
-    return COMBAT_TUNING.unclottableRuinedIntensity;
-  }
   if (health >= 1 && bleed <= 0) return 0;
   return bleed;
 }
@@ -127,47 +147,63 @@ export function getBleedIntensity(state: BleedState): number {
  */
 export function vulneraryInternalRateMult(vulnerary: boolean): number {
   if (!vulnerary) return 1;
-  const full = 0.25; // same cut as external when vulnerary
+  const full = COMBAT_TUNING.vulneraryExternalRateMult;
   const eff = COMBAT_TUNING.vulneraryInternalEfficiency;
   return 1 - (1 - full) * eff;
 }
 
 export function calcPartExternalBleedRate(
   part: BodyPartId,
-  state: BleedState
+  state: BleedState,
+  bloodLostFraction = 0
 ): number {
   const intensity = getExternalBleedIntensity(state);
   if (intensity <= 0) return 0;
+  const arterial =
+    getBodypartVitality(part).bleedCriticality === 'arterial';
   let rate = partBaseBleedRate(part) * intensity;
-  if (state.dressed) rate *= 0.25;
-  if (state.vulnerary) rate *= 0.25;
+  rate *= careExternalFlowMult(state);
+  rate *= hypovolemiaFlowMult(bloodLostFraction, arterial);
+  // Lodged shaft plugs the open channel (style mult).
+  rate *= lodgedExternalBleedMult(state);
   return roundToThousandths(rate);
 }
 
 export function calcPartInternalBleedRate(
   part: BodyPartId,
-  state: BleedState
+  state: BleedState,
+  bloodLostFraction = 0
 ): number {
   const intensity = getInternalBleedIntensity(state);
   if (intensity <= 0) return 0;
+  const arterial =
+    getBodypartVitality(part).bleedCriticality === 'arterial';
   let rate =
     partBaseBleedRate(part) *
     intensity *
     COMBAT_TUNING.internalBleedRateMult;
   // Dressing does not help internal; vulnerary at reduced efficiency.
   rate *= vulneraryInternalRateMult(!!state.vulnerary);
+  rate *= hypovolemiaFlowMult(bloodLostFraction, arterial);
   return roundToThousandths(rate);
 }
 
 /** Combined external + internal rate (blood loss / stamina). */
-export function calcPartBleedRate(part: BodyPartId, state: BleedState): number {
+export function calcPartBleedRate(
+  part: BodyPartId,
+  state: BleedState,
+  bloodLostFraction = 0
+): number {
   return roundToThousandths(
-    calcPartExternalBleedRate(part, state) +
-      calcPartInternalBleedRate(part, state)
+    calcPartExternalBleedRate(part, state, bloodLostFraction) +
+      calcPartInternalBleedRate(part, state, bloodLostFraction)
   );
 }
 
-export function summarizeBleed(itemizedHealth: ItemizedHealth): {
+export function summarizeBleed(
+  itemizedHealth: ItemizedHealth,
+  bloodLostFraction = 0
+): {
   totalBleedRate: number;
   partsBleeding: DerivedHealth['partsBleeding'];
 } {
@@ -177,8 +213,8 @@ export function summarizeBleed(itemizedHealth: ItemizedHealth): {
   for (const part of BODY_PARTS) {
     const s = itemizedHealth[part];
     if (!s) continue;
-    const externalRate = calcPartExternalBleedRate(part, s);
-    const internalRate = calcPartInternalBleedRate(part, s);
+    const externalRate = calcPartExternalBleedRate(part, s, bloodLostFraction);
+    const internalRate = calcPartInternalBleedRate(part, s, bloodLostFraction);
     const rate = roundToThousandths(externalRate + internalRate);
     const bleedIntensity = getExternalBleedIntensity(s);
     const internalBleedIntensity = getInternalBleedIntensity(s);
@@ -248,8 +284,8 @@ export function refreshBleedAfterInjury(
     applyBruiseFromHit(s, dmg, split);
   }
 
-  // Catastrophic open wound: undressed ruin still forces max external bleed.
-  if (health <= 0 && !s.dressed) {
-    s.bleed = COMBAT_TUNING.unclottableRuinedIntensity;
+  // Fresh ruin without occlusion: open at full external intensity.
+  if (health <= 0 && !s.dressed && !s.directPressure) {
+    s.bleed = Math.max(s.bleed, COMBAT_TUNING.unclottableRuinedIntensity);
   }
 }

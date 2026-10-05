@@ -24,6 +24,7 @@ import {
   classifyWeaponWearTarget,
 } from './calcDurabilityLoss';
 import { calcBlockStats } from './calcBlockStats';
+import { modifyBlockChance } from './defenseRhythm';
 import {
   calcAttackerSwingStamina,
   calcBlockStamina,
@@ -33,11 +34,24 @@ import {
 import { getItemTemplate } from '../../data/catalog/itemTemplates';
 import { getMaterial } from '../../data/combat/materials';
 import { bruiseFlavor } from './bruise';
+import { formatAimSpillPreview } from './aimSpill';
+import { formatOrgansSummary, resolveOrganPierce } from './organPierce';
 import {
   ATTACK_MODE_LABELS,
   resolveBleedSplitForAttack,
 } from './damageTypes';
 import { calcTraumaPenalties } from './traumaFlags';
+import {
+  resolveShieldBlock,
+  type BlockStyle,
+  type ResolveShieldBlockResult,
+} from './resolveShieldBlock';
+import { skillTrainingAptitude } from './rhythmCompetence';
+import {
+  calcSensoryPerformance,
+  syncConcussionFlag,
+} from './sensoryPerformance';
+import { resolveAttackWeapon } from './limbAttack';
 import { COMBAT_TUNING, isOutfitSlot, isSoftMaterial } from './combatTuning';
 import {
   calcBloodCombatPenalties,
@@ -82,6 +96,8 @@ export interface BasicAttackResult {
   weaponLoss: number;
   shieldLoss: number;
   blocked: boolean;
+  /** Present when blocked — arm overload / flat vs redirect. */
+  shieldBlock: ResolveShieldBlockResult | null;
   attackerStaminaLoss: number;
   defenderStaminaLoss: number;
   /** Mutated copies — assign back into Battleground state */
@@ -110,8 +126,33 @@ export interface ResolveBasicAttackOptions {
    * If omitted, derived from attackMode / weapon default.
    */
   bleedSplit?: import('./bleedSplit').BleedSplit;
-  /** Slash / thrust / blunt / unarmed — drives bleed split when bleedSplit omitted. */
+  /** Slash / thrust / blunt / unarmed / projectile — bleed + glancing. */
   attackMode?: import('./damageTypes').AttackMode;
+  /** Projectile path — bodkin skips mail/leather glance. */
+  arrowHeadStyle?: import('../../types/items').ArrowHeadStyle | null;
+  /** When set, replaces melee attackValue (ranged energy path). */
+  overrideAttackValue?: number;
+  /** When set, replaces swing stamina cost (e.g. bow draw). */
+  attackerStaminaOverride?: number;
+  /** Prefixed log lines (ranged meta). */
+  prependLog?: string[];
+  /**
+   * When set, replaces melee ATTACK_TARGETS[aim] before cover remap
+   * (ranged chest splash / custom tables).
+   */
+  hitRatioOverride?: Partial<Record<BodyPartId, number>>;
+  /**
+   * Shield block resolution:
+   * - `roll` (default): RNG vs modified block chance (legs aim tax applied)
+   * - `force`: player block QTE success — cover aim, skip roll
+   * - `skip`: player block QTE fail / no shield path — do not roll block
+   */
+  blockOutcome?: 'roll' | 'force' | 'skip';
+  /**
+   * Flat (inferior / hit-band) vs redirecting (superior / crit-band).
+   * Redirect counts overload at 50%. Defaults to flat.
+   */
+  blockStyle?: BlockStyle;
 }
 
 /**
@@ -127,7 +168,7 @@ export function resolveBasicAttack(
 ): BasicAttackResult {
   const attacker = deepCloneFighter(attackerIn);
   const defender = deepCloneFighter(defenderIn);
-  const log: string[] = [];
+  const log: string[] = [...(opts.prependLog ?? [])];
   const critMultiplier =
     opts.critMultiplier != null && opts.critMultiplier > 1
       ? opts.critMultiplier
@@ -136,14 +177,25 @@ export function resolveBasicAttack(
   const atkBase = attacker.unit.combatStats.base;
   const defBase = defender.unit.combatStats.base;
 
-  const mainId = attacker.unit.equipment.mainhand;
+  const mainIdEquipped = attacker.unit.equipment.mainhand;
+  const mainhandEquipped = mainIdEquipped
+    ? attacker.itemsById[mainIdEquipped] ?? null
+    : null;
+  const resolved = resolveAttackWeapon(attacker.unit, attacker.itemsById);
+  const attackWeapon = resolved.weapon;
   const offId = attacker.unit.equipment.offhand;
-  const mainhand = mainId ? attacker.itemsById[mainId] ?? null : null;
   const offhand = offId ? attacker.itemsById[offId] ?? null : null;
+  // Offhand "occupied" for grip: shield, or a weapon that is NOT the attacking weapon.
   const offhandIsShield = offhand?.itemType === 'shield';
+  const offhandOccupied =
+    !!offhand &&
+    (offhandIsShield ||
+      (offhand.itemType === 'weapon' && resolved.slot === 'mainhand'));
   const offTemplate = offhand ? getItemTemplate(offhand.templateId) : null;
   const offhandWeight =
-    offhand && offTemplate ? calcItemWeight(offTemplate) : 0;
+    offhandOccupied && offhand && offTemplate
+      ? calcItemWeight(offTemplate)
+      : 0;
 
   const atkBlood = getBloodStatus(attacker.unit);
   const atkBloodPen = calcBloodCombatPenalties(atkBlood.remainingFraction);
@@ -151,17 +203,43 @@ export function resolveBasicAttack(
     atkBase,
     attacker.unit.combatStats.itemizedHealth,
     attacker.unit.combatStats.weaponSkill,
-    mainhand,
-    offhandIsShield,
+    attackWeapon,
+    offhandIsShield && resolved.slot === 'mainhand',
     offhandWeight,
     {
       bloodRemainingFraction: atkBlood.remainingFraction,
       bloodStaminaFactor: atkBloodPen.stamina,
       bloodAttackFactor: atkBloodPen.attack,
+    },
+    {
+      dominantHand: attacker.unit.combatStats.dominantHand ?? 'right',
+      attackSlot: resolved.slot,
+      offhandOccupied,
     }
   );
-  if (critMultiplier > 1) {
+  // Offhand-slot weapon: skill tax (competence / miss use effective skill elsewhere).
+  if (resolved.isOffhandSlot && resolved.offhandSkillFactor < 1) {
+    log.push(
+      `${attacker.unit.name} fights offhand (×${resolved.offhandSkillFactor.toFixed(2)} skill; training ${(attacker.unit.combatStats.offhandTraining ?? 0).toFixed(2)}).`
+    );
+  }
+  if (atk.limbAttack && atk.limbAttackMult < 0.999) {
+    const la = atk.limbAttack;
+    log.push(
+      `Weapon-arm (${la.side}) integrity ×${atk.limbAttackMult.toFixed(2)} (${la.mode}; L ${la.leftIntegrity.toFixed(2)} / R ${la.rightIntegrity.toFixed(2)}).`
+    );
+  } else if (atk.limbAttack?.mode === 'oneHandFallback') {
+    log.push(
+      `${attacker.unit.name} one-hands the weapon off the ${atk.limbAttack.side} arm (two-hand grip compromised).`
+    );
+  }
+  if (opts.overrideAttackValue != null) {
+    atk.attackValue = opts.overrideAttackValue;
+  }
+  if (critMultiplier > 1 && opts.overrideAttackValue == null) {
     atk.attackValue = roundToThousandths(atk.attackValue * critMultiplier);
+  } else if (critMultiplier > 1 && opts.overrideAttackValue != null) {
+    // Ranged path already baked crit into override when desired.
   }
 
   const atkStance = attacker.unit.combatStats.currentStance;
@@ -173,12 +251,45 @@ export function resolveBasicAttack(
     defender.unit.combatStats.stanceSkill,
     atk.weaponType
   );
-  const bodypart = pickBodyPartWithStance(attackTarget, defStance.cover);
-  const presented = summarizeRemappedAim(attackTarget, defStance.cover, 4);
+  const atkSensory = calcSensoryPerformance(
+    attacker.unit.combatStats.itemizedHealth
+  );
+  const spillSkills = {
+    attackerWeaponSkill:
+      ((attacker.unit.combatStats.weaponSkill as Record<string, number>)[
+        atk.weaponType
+      ] ?? 1) * resolved.offhandSkillFactor,
+    attackerSkill: atkBase.skill * resolved.offhandSkillFactor,
+    defenderCoverSkill:
+      (defender.unit.combatStats.stanceSkill as Record<string, number>)[
+        defStance.cover
+      ] ?? 1,
+    attackerFocusMult: atkSensory.focusMult,
+  };
+  if (atkSensory.focusMult < 0.999) {
+    log.push(
+      `${attacker.unit.name} sensory focus ×${atkSensory.focusMult.toFixed(2)} (accuracy ×${atkSensory.accuracyMult.toFixed(2)}${atkSensory.concussed ? `, concussed skill ×${atkSensory.skillMult.toFixed(2)}` : ''}).`
+    );
+  }
+  const bodypart = pickBodyPartWithStance(
+    attackTarget,
+    defStance.cover,
+    opts.hitRatioOverride,
+    opts.rng,
+    spillSkills
+  );
+  const presented = summarizeRemappedAim(
+    attackTarget,
+    defStance.cover,
+    4,
+    opts.hitRatioOverride,
+    spillSkills
+  );
   log.push(
     `${attacker.unit.name} ${atkStance.strike} (rank ${stance.strikeRank}) vs ${defender.unit.name} ${defStance.cover} (rank ${stance.coverRank}).`
   );
   log.push(formatMatchupPreview(stance));
+  log.push(formatAimSpillPreview(spillSkills) + '.');
   log.push(
     `${attackTarget} aim vs ${defStance.cover} presents: ${presented
       .map((p) => `${formatBodyPartLabel(p.part)} ${(p.ratio * 100).toFixed(0)}%`)
@@ -189,11 +300,16 @@ export function resolveBasicAttack(
       critMultiplier > 1 ? ` [CRIT ×${critMultiplier}]` : ''
     }.`
   );
-  if (atk.weaponBroken && mainhand) {
+  if (
+    mainhandEquipped &&
+    mainhandEquipped.itemType === 'weapon' &&
+    !attackWeapon &&
+    resolved.slot === 'mainhand'
+  ) {
     log.push(
-      `${mainhand.name} is broken (dur ≤ ${(COMBAT_TUNING.weaponDurabilityAttack.brokenRatio * 100).toFixed(0)}%) — swing collapses to unequipped/punch.`
+      `${mainhandEquipped.name} is broken (dur ≤ ${(COMBAT_TUNING.weaponDurabilityAttack.brokenRatio * 100).toFixed(0)}%) — swing collapses to unequipped/punch.`
     );
-  } else if (mainhand && atk.durabilityAttackMult < 0.999) {
+  } else if (attackWeapon && atk.durabilityAttackMult < 0.999) {
     log.push(
       `Weapon wear flavor ×${atk.durabilityAttackMult.toFixed(3)} (intact; soft until broken).`
     );
@@ -209,6 +325,25 @@ export function resolveBasicAttack(
   );
 
   const blockStats = calcBlockStats(defender.unit, defender.itemsById);
+  const blockOutcome = opts.blockOutcome ?? 'roll';
+  let blockChanceForRoll = 0;
+  if (blockOutcome === 'force') {
+    blockChanceForRoll = blockStats.hasShield ? 1 : 0;
+  } else if (blockOutcome === 'skip') {
+    blockChanceForRoll = 0;
+  } else if (blockStats.hasShield) {
+    // NPC / bypass path: legs-aim tax only (no prior-attempt tax).
+    const offIdDef = defender.unit.equipment.offhand;
+    const offShield = offIdDef ? defender.itemsById[offIdDef] : null;
+    const shieldTypeId =
+      offShield?.shieldType ??
+      (offShield ? getItemTemplate(offShield.templateId)?.shieldType : null) ??
+      null;
+    blockChanceForRoll = modifyBlockChance(blockStats.chance, {
+      aim: attackTarget,
+      shieldTypeId,
+    });
+  }
   const dmg = calcCombatDamage(
     atk.attackValue,
     defBase.health,
@@ -216,26 +351,94 @@ export function resolveBasicAttack(
     defender.unit.equipment,
     defender.itemsById,
     {
-      blockChance: blockStats.chance,
+      blockChance: blockChanceForRoll,
       blockValue: blockStats.value,
+      rng: blockOutcome === 'force' ? () => 0 : opts.rng,
+    },
+    {
+      attackMode,
+      arrowHeadStyle: opts.arrowHeadStyle,
       rng: opts.rng,
     }
   );
 
+  const blockStyle: BlockStyle = opts.blockStyle ?? 'flat';
+  let shieldBlock: ResolveShieldBlockResult | null = null;
   if (dmg.blocked) {
+    shieldBlock = resolveShieldBlock({
+      attackValue: atk.attackValue,
+      blockValue: blockStats.value,
+      style: blockStyle,
+      itemized: defender.unit.combatStats.itemizedHealth,
+      apply: true,
+    });
+    const how =
+      blockOutcome === 'force'
+        ? 'QTE'
+        : `p=${blockChanceForRoll.toFixed(2)}, roll=${dmg.blockRoll.toFixed(2)}`;
+    const styleLabel =
+      blockStyle === 'redirect' ? 'redirecting' : 'flat';
     log.push(
-      `${defender.unit.name} BLOCKS with shield (p=${blockStats.chance.toFixed(2)}, roll=${dmg.blockRoll.toFixed(2)}, absorb ${blockStats.value.toFixed(2)}) — through-block ${dmg.damageThroughBlock.toFixed(2)}; armor mit skipped.`
+      `${defender.unit.name} BLOCKS with shield (${how}, ${styleLabel}, capacity ${blockStats.value.toFixed(2)}) — aimed part covered; armor mit skipped.`
     );
-  } else if (blockStats.hasShield) {
+    if (shieldBlock.withinCapacity) {
+      log.push(
+        `Shield holds within capacity (atk ${atk.attackValue.toFixed(2)} ≤ ${blockStats.value.toFixed(2)}).`
+      );
+    } else {
+      const armLabel = formatBodyPartLabel(shieldBlock.armPart);
+      const excessNote =
+        blockStyle === 'redirect'
+          ? `excess ×${COMBAT_TUNING.shieldBlock.redirectOverloadMult} redirect → ${shieldBlock.excessRatioEffective.toFixed(2)}`
+          : `excess ${shieldBlock.excessRatioEffective.toFixed(2)}`;
+      log.push(
+        `Shield overload on ${armLabel} (${excessNote}, band ${shieldBlock.band}).`
+      );
+      if (shieldBlock.bruiseGained) {
+        const fl = bruiseFlavor(shieldBlock.bruiseAfter);
+        log.push(
+          `${armLabel}: ${fl.label} (${(shieldBlock.bruiseAfter * 100).toFixed(0)}%) from block shock.`
+        );
+      }
+      if (shieldBlock.traumaApplied !== 'none') {
+        log.push(
+          `${armLabel} trauma → ${shieldBlock.traumaApplied} (shield-arm overload).`
+        );
+      } else if (
+        shieldBlock.traumaDesired !== 'none' &&
+        shieldBlock.traumaApplied === 'none'
+      ) {
+        log.push(
+          `${armLabel}: comparative overload suggested ${shieldBlock.traumaDesired}, but attack force is below the absolute trauma floor.`
+        );
+      }
+    }
+  } else if (blockStats.hasShield && blockOutcome !== 'skip') {
     log.push(
-      `${defender.unit.name} fails to block (p=${blockStats.chance.toFixed(2)}, roll=${dmg.blockRoll.toFixed(2)}).`
+      `${defender.unit.name} fails to block (p=${blockChanceForRoll.toFixed(2)}, roll=${dmg.blockRoll.toFixed(2)}).`
     );
+  } else if (blockStats.hasShield && blockOutcome === 'skip') {
+    log.push(`${defender.unit.name} mistimes the shield — no block.`);
+  }
+
+  if (!dmg.blocked && dmg.glance?.glanced) {
+    log.push(
+      `Glancing blow on ${dmg.glance.layerName ?? 'armor'} (${dmg.glance.reason ?? dmg.glance.armorClass}) — wound ×${dmg.glance.fraction}.`
+    );
+  } else if (!dmg.blocked && dmg.glance && !dmg.glance.glanced && dmg.glance.armorClass) {
+    if (dmg.glance.coverageRoll != null) {
+      log.push(
+        `No glance — ${dmg.glance.reason ?? 'coverage gap'} on ${dmg.glance.layerName ?? dmg.glance.armorClass}.`
+      );
+    }
   }
 
   log.push(
     dmg.blocked
-      ? `Blocked residual → part damage ${(dmg.damagePercent * 100).toFixed(1)}%.`
-      : `Armor mitigation ${dmg.totalMitigation} → multiplier ${dmg.mitigationMultiplier}; damage to part ${(dmg.damagePercent * 100).toFixed(1)}%.`
+      ? `Aimed part takes no wound from the block (covered).`
+      : `Armor mitigation ${dmg.totalMitigation} → multiplier ${dmg.mitigationMultiplier}${
+          dmg.glance?.glanced ? ` × glance ${dmg.glance.fraction}` : ''
+        }; damage to part ${(dmg.damagePercent * 100).toFixed(1)}%.`
   );
 
   // —— Apply itemized injury; pool HP is compiled from weighted parts ——
@@ -247,6 +450,16 @@ export function resolveBasicAttack(
     damagePercent: dmg.damagePercent,
     split: bleedSplit,
   });
+  const wasConcussed = !!defender.unit.combatStats.itemizedHealth.head?.concussed;
+  syncConcussionFlag(defender.unit.combatStats.itemizedHealth);
+  if (
+    !wasConcussed &&
+    defender.unit.combatStats.itemizedHealth.head?.concussed
+  ) {
+    log.push(
+      `${defender.unit.name} is concussed (head health ≤ ${(COMBAT_TUNING.sensory.concussionHealthThreshold * 100).toFixed(0)}%).`
+    );
+  }
   if (dmg.damagePercent > 0) {
     const partBleed = defender.unit.combatStats.itemizedHealth[bodypart];
     if (partBleed.bleed > 0 || partBleed.internalBleed > 0) {
@@ -259,6 +472,28 @@ export function resolveBasicAttack(
       log.push(
         `${formatBodyPartLabel(bodypart)}: ${fl.label} (${(partBleed.bruise * 100).toFixed(0)}%).`
       );
+    }
+
+    // Thrust → possible heart/lung pierce (hard chest armor deters).
+    const organ = resolveOrganPierce({
+      defender: defender.unit,
+      itemsById: defender.itemsById,
+      bodypart,
+      damagePercent: dmg.damagePercent,
+      attackMode,
+      weaponType: atk.weaponType,
+      stanceRelation: stance.relation,
+      attackerSkill: atkBase.skill,
+      attackerWeaponSkill:
+        (attacker.unit.combatStats.weaponSkill as Record<string, number>)[
+          atk.weaponType
+        ] ?? 1,
+      rng: opts.rng,
+    });
+    for (const line of organ.log) log.push(line);
+    const organSummary = formatOrgansSummary(defender.unit.combatStats.organs);
+    if (organSummary) {
+      log.push(`Organs: ${organSummary}${defender.unit.combatStats.incapacitated ? ' · INCAPACITATED' : ''}.`);
     }
   }
 
@@ -327,6 +562,7 @@ export function resolveBasicAttack(
         attackerWeaponHardness: atk.weaponHardness,
         layerIndex: index,
         isOutermost: index === 0,
+        attackerWeaponType: atk.weaponType,
       });
       if (baseLoss <= 0) return;
 
@@ -376,7 +612,7 @@ export function resolveBasicAttack(
 
   // —— Weapon durability (vs shield when blocked; else outer armor/flesh) ——
   let weaponLoss = 0;
-  if (mainhand) {
+  if (attackWeapon) {
     let outerMat = layers[0]?.instance.material ?? null;
     let defendingHardness = layers[0]?.material.durability ?? 1;
     if (dmg.blocked) {
@@ -389,36 +625,37 @@ export function resolveBasicAttack(
     }
     const wearTarget = classifyWeaponWearTarget(outerMat);
     weaponLoss = calcWeaponDurabilityLoss(
-      mainhand,
+      attackWeapon,
       atk.attackBase,
       defendingHardness,
       wearTarget
     );
     if (weaponLoss > 0) {
-      mainhand.durability = Math.max(
+      attackWeapon.durability = Math.max(
         0,
-        roundToThousandths(mainhand.durability - weaponLoss)
+        roundToThousandths(attackWeapon.durability - weaponLoss)
       );
       log.push(
-        `${mainhand.name} durability −${weaponLoss} → ${mainhand.durability.toFixed(3)} (vs ${wearTarget}).`
+        `${attackWeapon.name} durability −${weaponLoss} → ${attackWeapon.durability.toFixed(3)} (vs ${wearTarget}).`
       );
     }
   }
 
   // —— Stamina: formulaic swing cost + hit absorption ——
   const twoHanding =
-    !!(
-      mainhand &&
-      getItemTemplate(mainhand.templateId)?.flags?.twoHandOptional
-    ) &&
-    !offhandIsShield &&
-    offhandWeight <= 0;
-  const attackerStaminaLoss = calcAttackerSwingStamina({
-    attacker: attacker.unit,
-    mainhand,
-    offhandWeight,
-    twoHanding,
-  });
+    atk.limbAttack?.mode === 'twoHand' ||
+    (!offhandOccupied &&
+      !!attackWeapon &&
+      !!getItemTemplate(attackWeapon.templateId)?.flags?.twoHandOptional);
+  const attackerStaminaLoss =
+    opts.attackerStaminaOverride != null
+      ? opts.attackerStaminaOverride
+      : calcAttackerSwingStamina({
+          attacker: attacker.unit,
+          mainhand: attackWeapon,
+          offhandWeight,
+          twoHanding,
+        });
   const surface = dmg.blocked
     ? classifyDefenderSurface(
         defender.unit.equipment.offhand
@@ -429,27 +666,16 @@ export function resolveBasicAttack(
   let defenderStaminaLoss = 0;
   if (dmg.blocked) {
     const traumaStam = calcTraumaPenalties(
-      defender.unit.combatStats.itemizedHealth
+      defender.unit.combatStats.itemizedHealth,
+      defender.unit.combatStats.organs
     ).staminaDrainMult;
     defenderStaminaLoss = calcBlockStamina({
       attackerCon: atkBase.constitution,
       defenderCon: defBase.constitution,
+      attackValue: atk.attackValue,
+      excessRatioEffective: shieldBlock?.excessRatioEffective ?? 0,
       staminaDrainMult: traumaStam,
     });
-    if (dmg.damagePercent > 0) {
-      defenderStaminaLoss = roundToThousandths(
-        defenderStaminaLoss +
-          calcDefenderHitStamina({
-            attacker: attacker.unit,
-            defender: defender.unit,
-            bodypart,
-            attackValue: dmg.damageThroughBlock,
-            damagePercent: dmg.damagePercent,
-            surface,
-          }) *
-            0.5
-      );
-    }
   } else {
     defenderStaminaLoss = calcDefenderHitStamina({
       attacker: attacker.unit,
@@ -474,21 +700,36 @@ export function resolveBasicAttack(
     } (${surface}, ${formatBodyPartLabel(bodypart)}) −${defenderStaminaLoss} → ${defBase.staminaCurrent}.`
   );
 
-  // Skill gains on connect — flat additives from COMBAT_TUNING.training
+  // Skill gains on connect — base bumps × SKL aptitude (concussion impairs learning)
   const train = COMBAT_TUNING.training;
+  const atkApt = skillTrainingAptitude(
+    atkBase.skill,
+    attacker.unit.combatStats.itemizedHealth
+  );
+  const defApt = skillTrainingAptitude(
+    defBase.skill,
+    defender.unit.combatStats.itemizedHealth
+  );
   const skillKey = atk.weaponType as WeaponTypeId;
+  const weaponBump = train.weaponSkillBumpOnHit * atkApt;
+  const strikeBump = train.strikeSkillBumpOnHit * atkApt;
+  const coverBump = train.coverSkillBumpOnHit * defApt;
+
   const prevSkill = attacker.unit.combatStats.weaponSkill[skillKey] ?? 1;
   attacker.unit.combatStats.weaponSkill[skillKey] = roundToThousandths(
-    prevSkill + train.weaponSkillBumpOnHit
+    prevSkill + weaponBump
   );
 
   const prevStrike = attacker.unit.combatStats.stanceSkill[atkStance.strike] ?? 1;
   attacker.unit.combatStats.stanceSkill[atkStance.strike] = roundToThousandths(
-    prevStrike + train.strikeSkillBumpOnHit
+    prevStrike + strikeBump
   );
   const prevCover = defender.unit.combatStats.stanceSkill[defStance.cover] ?? 1;
   defender.unit.combatStats.stanceSkill[defStance.cover] = roundToThousandths(
-    prevCover + train.coverSkillBumpOnHit
+    prevCover + coverBump
+  );
+  log.push(
+    `Training: ${attacker.unit.name} ${skillKey}/strike +${weaponBump.toFixed(3)}/+${strikeBump.toFixed(3)} (SKL apt ×${atkApt.toFixed(2)}); ${defender.unit.name} cover +${coverBump.toFixed(3)} (×${defApt.toFixed(2)}).`
   );
 
   return {
@@ -503,6 +744,7 @@ export function resolveBasicAttack(
     weaponLoss,
     shieldLoss,
     blocked: dmg.blocked,
+    shieldBlock,
     attackerStaminaLoss,
     defenderStaminaLoss,
     attacker,

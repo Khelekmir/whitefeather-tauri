@@ -37,6 +37,8 @@ import {
   UNDRESS_ORDER_TORSO,
 } from './utils/items/equipGear';
 import {
+  applyDirectPressure,
+  releaseDirectPressure,
   useBandageOnPart,
   useVulneraryOnPart,
   BANDAGE_TEMPLATE_ID,
@@ -48,6 +50,7 @@ import {
   setTraumaFlag,
   type TraumaLevel,
 } from './utils/combat/traumaFlags';
+import { syncConcussionFlag } from './utils/combat/sensoryPerformance';
 
 const wardrobeBtn: CSSProperties = {
   padding: '6px 12px',
@@ -125,10 +128,14 @@ function injuryTags(part: BodyPartHealth): string[] {
   }
   const trauma = highestTrauma(part);
   if (trauma !== 'none') tags.push(trauma);
+  if (part.concussed) tags.push('concussed');
   if (part.dressed) tags.push('dressed');
   if (part.vulnerary) tags.push('vulnerary');
+  if (part.directPressure) tags.push('pressure');
   if (part.bleed > 0) tags.push(`bleed ${(part.bleed * 100).toFixed(0)}%`);
   if (part.internalBleed > 0) tags.push(`i-bleed ${(part.internalBleed * 100).toFixed(0)}%`);
+  if (part.lodgedArrow)
+    tags.push(`shaft:${part.lodgedArrow.headStyle}/${part.lodgedArrow.material}`);
   return tags;
 }
 
@@ -140,6 +147,7 @@ function ItemizedHealthTable({
   onVulnerary,
   onLabInjure,
   onLabTrauma,
+  onTogglePressure,
 }: {
   unit: DetailedUnit;
   bandageCount: number;
@@ -148,6 +156,7 @@ function ItemizedHealthTable({
   onVulnerary: (part: BodyPartId) => void;
   onLabInjure: (part: BodyPartId) => void;
   onLabTrauma: (part: BodyPartId, level: TraumaLevel) => void;
+  onTogglePressure: (part: BodyPartId) => void;
 }) {
   const rows = useMemo(() => {
     return BODY_PARTS.map((id: BodyPartId) => {
@@ -189,7 +198,10 @@ function ItemizedHealthTable({
             {rows.map(({ id, part, tags }) => {
               const dimmed = part.health >= 1 && tags.length === 0;
               const needsCare =
-                part.health < 1 || part.bleed > 0 || part.internalBleed > 0;
+                part.health < 1 ||
+                part.bleed > 0 ||
+                part.internalBleed > 0 ||
+                !!part.lodgedArrow;
               return (
                 <tr
                   key={id}
@@ -263,6 +275,19 @@ function ItemizedHealthTable({
                             onClick={() => onVulnerary(id)}
                           >
                             Vulnerary
+                          </button>
+                          <button
+                            type="button"
+                            style={{
+                              ...wardrobeBtn,
+                              padding: '2px 8px',
+                              fontSize: 11,
+                              opacity: part.directPressure ? 1 : 0.7,
+                            }}
+                            title="Hold / release hand pressure on the wound"
+                            onClick={() => onTogglePressure(id)}
+                          >
+                            {part.directPressure ? 'Release pressure' : 'Pressure'}
                           </button>
                         </>
                       ) : (
@@ -1169,7 +1194,9 @@ function CharacterDetail() {
     const spent = r.consumedId ? ' · consumed' : r.labFree ? ' · lab free' : '';
     const already = r.already ? ' (already applied)' : '';
     setGearNote(
-      `${kind === 'bandage' ? 'Bandage' : 'Vulnerary'} → ${label}${already}${spent}.`
+      `${kind === 'bandage' ? 'Bandage' : 'Vulnerary'} → ${label}${already}${spent}.${
+        r.ok && r.warning ? ` ${r.warning}` : ''
+      }`
     );
   };
 
@@ -1182,9 +1209,12 @@ function CharacterDetail() {
     const chip = 0.35;
     s.bleed = Math.max(s.bleed, Math.min(1, chip * 0.85));
     s.internalBleed = Math.max(s.internalBleed, Math.min(1, chip * 0.15));
+    const concussed = syncConcussionFlag(nextUnit.combatStats.itemizedHealth);
     setUnit(nextUnit);
     setGearNote(
-      `Lab injure ${formatBodyPartLabel(part)} → health ${(s.health * 100).toFixed(0)}% · bleed ${(s.bleed * 100).toFixed(0)}% / i-bleed ${(s.internalBleed * 100).toFixed(0)}%.`
+      `Lab injure ${formatBodyPartLabel(part)} → health ${(s.health * 100).toFixed(0)}% · bleed ${(s.bleed * 100).toFixed(0)}% / i-bleed ${(s.internalBleed * 100).toFixed(0)}%${
+        part === 'head' && concussed ? ' · CONCUSSED' : ''
+      }.`
     );
   };
 
@@ -1201,6 +1231,25 @@ function CharacterDetail() {
       level === 'none'
         ? `Cleared trauma on ${formatBodyPartLabel(part)}.`
         : `Set ${level} on ${formatBodyPartLabel(part)} (health unchanged).`
+    );
+  };
+
+  const onTogglePressure = (part: BodyPartId) => {
+    if (!unit) return;
+    const nextUnit = structuredClone(unit) as DetailedUnit;
+    const s = nextUnit.combatStats.itemizedHealth[part];
+    const r = s.directPressure
+      ? releaseDirectPressure(nextUnit.combatStats.itemizedHealth, part)
+      : applyDirectPressure(nextUnit.combatStats.itemizedHealth, part);
+    if (!r.ok) {
+      setGearNote(r.message);
+      return;
+    }
+    setUnit(nextUnit);
+    setGearNote(
+      s.directPressure
+        ? `Released pressure on ${formatBodyPartLabel(part)}.`
+        : `Applying direct pressure on ${formatBodyPartLabel(part)}.`
     );
   };
 
@@ -1305,6 +1354,7 @@ function CharacterDetail() {
           onVulnerary={(part) => mutatePartCare(part, 'vulnerary')}
           onLabInjure={onLabInjure}
           onLabTrauma={onLabTrauma}
+          onTogglePressure={onTogglePressure}
         />
       </section>
     </div>

@@ -13,6 +13,7 @@ import {
   deriveHealthFromItemized,
   getExternalBleedIntensity,
   getInternalBleedIntensity,
+  isExternalBleedPinned,
 } from './deriveHealthPool';
 import { roundToThousandths } from './penalties';
 import type { FighterState } from './resolveBasicAttack';
@@ -22,6 +23,7 @@ import {
   clotRatePerMinuteInternal,
 } from './woundCare';
 import { fadeAllBruises, bruiseFlavor } from './bruise';
+import { aggravateLodgedArrows } from './lodgedArrow';
 import { formatBodyPartLabel } from '../../types/characters';
 
 export interface BleedTickResult {
@@ -71,9 +73,24 @@ export function tickBleed(
     };
   }
 
+  // Hypovolemia uses blood already lost *before* this interval.
+  const bloodBefore = getBloodStatus(fighter.unit);
+  const lostFrac = bloodBefore.lostFraction;
+
+  // Lodged shafts wriggle with time/movement — raises internal before rate sum.
+  const aggravated = aggravateLodgedArrows(itemized, { minutes: dt });
+  if (aggravated.log.length > 0) {
+    log.push(
+      `Lodged arrows shift: ${aggravated.parts
+        .slice(0, 3)
+        .map((p) => formatBodyPartLabel(p))
+        .join(', ')}${aggravated.parts.length > 3 ? '…' : ''}.`
+    );
+  }
+
   let totalRate = 0;
   for (const part of BODY_PARTS) {
-    totalRate += calcPartBleedRate(part, itemized[part]);
+    totalRate += calcPartBleedRate(part, itemized[part], lostFrac);
   }
 
   const bloodLossDelta = roundToThousandths(
@@ -96,20 +113,22 @@ export function tickBleed(
     const s = itemized[part];
     if (!s) continue;
 
-    // —— External channel ——
-    if (s.health <= 0 && !s.dressed) {
-      s.bleed = COMBAT_TUNING.unclottableRuinedIntensity;
+    // —— External channel (can clot fully to 0 while wound still open) ——
+    if (isExternalBleedPinned(s)) {
+      // Undressed ruin without pressure: no clotting; intensity relapses toward full
+      // spray (does not instantly snap to 1 when pressure is released).
+      const ceiling = COMBAT_TUNING.unclottableRuinedIntensity;
+      const climb = COMBAT_TUNING.ruinedBleedRelapsePerMinute * dt;
+      s.bleed = Math.min(ceiling, Math.max(0, s.bleed) + climb);
     } else if (getExternalBleedIntensity(s) <= 0) {
       s.bleed = 0;
     } else {
-      const clotExt = clotRatePerMinute(s) * dt;
-      if (s.health >= 1) {
-        s.bleed = Math.max(0, s.bleed - clotExt);
-      } else {
-        // Soft floor while wound remains — does not force bleed from health alone.
-        const floor = Math.min(s.bleed, (1 - s.health) * 0.15);
-        s.bleed = Math.max(floor, s.bleed - clotExt);
-      }
+      const clotExt =
+        clotRatePerMinute(s, {
+          bloodLostFraction: lostFrac,
+          bodyPartId: part,
+        }) * dt;
+      s.bleed = Math.max(0, s.bleed - clotExt);
     }
 
     // —— Internal channel (dressing irrelevant; always clotable) ——
@@ -122,7 +141,7 @@ export function tickBleed(
   }
 
   const heal = applyNaturalHealing(itemized, dt);
-  const bruiseFaded = fadeAllBruises(itemized, dt);
+  const bruiseChanged = fadeAllBruises(itemized, dt);
 
   const blood = getBloodStatus(fighter.unit);
   const bloodPen = calcBloodCombatPenalties(blood.remainingFraction);
@@ -151,16 +170,47 @@ export function tickBleed(
         .join(', ')}.`
     );
   }
-  if (bruiseFaded.length > 0) {
-    const sample = bruiseFaded.slice(0, 3).map((p) => {
+  if (bruiseChanged.length > 0) {
+    const sample = bruiseChanged.slice(0, 3).map((p) => {
       const sev = itemized[p]?.bruise ?? 0;
       const fl = bruiseFlavor(sev);
+      const ib = itemized[p]?.internalBleed ?? 0;
+      if (ib > COMBAT_TUNING.bruise.activeInternalThreshold) {
+        return `${formatBodyPartLabel(p)} settling (${fl.label})`;
+      }
       return `${formatBodyPartLabel(p)}${sev > 0 ? ` (${fl.label})` : ' (cleared)'}`;
     });
+    const anySettling = bruiseChanged.some(
+      (p) =>
+        (itemized[p]?.internalBleed ?? 0) >
+        COMBAT_TUNING.bruise.activeInternalThreshold
+    );
     log.push(
-      `Bruises easing: ${sample.join(', ')}${bruiseFaded.length > 3 ? '…' : ''}.`
+      `${anySettling ? 'Bruises shifting' : 'Bruises easing'}: ${sample.join(', ')}${
+        bruiseChanged.length > 3 ? '…' : ''
+      }.`
     );
   }
+  const collapseAt = COMBAT_TUNING.bloodStamina.collapseLostFraction;
+  const deathAt = COMBAT_TUNING.bloodStamina.deathLostFraction;
+
+  // Death (~50% lost) — exsanguination.
+  if (blood.lostFraction >= deathAt) {
+    base.staminaCurrent = 0;
+    base.healthCurrent = 0;
+    log.push(
+      `${fighter.unit.name} dies from blood loss (${(blood.lostFraction * 100).toFixed(0)}% lost · ${blood.lossClass}).`
+    );
+  } else if (blood.lostFraction >= collapseAt) {
+    // Collapse / faint (~40% lost) — stamina gone; still a soft margin to death.
+    if (base.staminaCurrent > 0) {
+      base.staminaCurrent = 0;
+      log.push(
+        `${fighter.unit.name} collapses from blood loss — stamina depleted (${(blood.lostFraction * 100).toFixed(0)}% lost · ${blood.lossClass}).`
+      );
+    }
+  }
+
   log.push(
     `Blood remaining ${(blood.remainingFraction * 100).toFixed(0)}% (${blood.lossClass}) · stamina factor ${bloodPen.stamina.toFixed(2)} · HP ${derived.healthCurrent.toFixed(1)}/${base.health}.`
   );

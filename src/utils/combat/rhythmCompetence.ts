@@ -8,9 +8,12 @@ import {
   type WeaponSkill,
   type WeaponTypeId,
 } from '../../types/characters';
+import type { Item } from '../../types/items';
 import { stanceRankFactor } from './calcStanceMatchup';
 import { COMBAT_TUNING } from './combatTuning';
 import { roundToThousandths } from './penalties';
+import { calcSensoryPerformance } from './sensoryPerformance';
+import { resolveAttackWeapon } from './limbAttack';
 
 const C = COMBAT_TUNING.rhythm.competence;
 
@@ -37,8 +40,15 @@ export interface RhythmCompetenceBreakdown {
   /**
    * Final attacker competence for this swing (≈0..1+).
    * Drives QTE hit/crit bands and untrained collapse haste.
+   * Includes sensory focus (eyes/ears accuracy × concussion skill).
    */
   competence: number;
+  /** Concussion skill mult baked into competence (1 = clear). */
+  sensorySkillMult: number;
+  /** Eyes/ears accuracy mult baked into competence (1 = clear). */
+  sensoryAccuracyMult: number;
+  /** Offhand-slot skill factor (1 = dominant hand). */
+  offhandSkillFactor: number;
 }
 
 function avg(nums: number[]): number {
@@ -120,14 +130,36 @@ export function statFactor(stat: number, pivot = 12): number {
 }
 
 /**
+ * How fast training bumps accrue from base SKL.
+ * Pivot ≈ 1.0×; low SKL floors at skillAptitudeMin; high caps at Max.
+ * Pass itemizedHealth to apply concussion skill impairment.
+ */
+export function skillTrainingAptitude(
+  skill: number,
+  itemizedHealth?: import('../../types/characters').ItemizedHealth
+): number {
+  const t = COMBAT_TUNING.training;
+  const pivot = t.skillAptitudePivot;
+  const atPivot = Math.max(0.2, statFactor(pivot, pivot));
+  const raw = statFactor(skill, pivot) / atPivot;
+  let apt = Math.max(t.skillAptitudeMin, Math.min(t.skillAptitudeMax, raw));
+  if (itemizedHealth) {
+    apt *= calcSensoryPerformance(itemizedHealth).skillMult;
+  }
+  return roundToThousandths(apt);
+}
+
+/**
  * Attacker rhythm competence for the equipped weapon + current strike stance.
  * Weapon skill is the primary landing axis; strike is the trained angle;
  * base skill / speed / luck are light modifiers (luck → crit later).
+ * Offhand-slot weapons apply offhandSkillFactor (training reduces the tax).
  */
 export function calcRhythmCompetence(
   attacker: DetailedUnit,
   weaponType: string,
-  strike: StrikeStanceId = attacker.combatStats.currentStance.strike
+  strike: StrikeStanceId = attacker.combatStats.currentStance.strike,
+  opts?: { itemsById?: Record<string, Item>; offhandSkillFactor?: number }
 ): RhythmCompetenceBreakdown {
   const weapon = calcWeaponEff(attacker.combatStats.weaponSkill, weaponType);
   const strikePart = calcStrikeEff(attacker.combatStats.stanceSkill, strike);
@@ -136,12 +168,23 @@ export function calcRhythmCompetence(
   const speedFactor = statFactor(base.speed, 14);
   const luckFactor = statFactor(base.luck, 14);
 
+  let offhandSkillFactor = opts?.offhandSkillFactor ?? 1;
+  if (opts?.offhandSkillFactor == null && opts?.itemsById) {
+    offhandSkillFactor = resolveAttackWeapon(
+      attacker,
+      opts.itemsById
+    ).offhandSkillFactor;
+  }
+
   const blended =
     C.weaponWeight * weapon.weaponEff + C.strikeWeight * strikePart.strikeEff;
   // Small hand-eye bump from base skill (does not replace weapon training)
-  const withSkill = blended + C.baseSkillWeight * baseSkillFactor;
+  const withSkill =
+    (blended + C.baseSkillWeight * baseSkillFactor) * offhandSkillFactor;
+  const sensory = calcSensoryPerformance(attacker.combatStats.itemizedHealth);
+  // Eyes/ears + concussion impair skill-gated placement (melee has no separate accuracy roll).
   const competence = roundToThousandths(
-    Math.max(0, Math.min(1.25, withSkill))
+    Math.max(0, Math.min(1.25, withSkill * sensory.focusMult))
   );
 
   return {
@@ -153,5 +196,8 @@ export function calcRhythmCompetence(
     speedFactor,
     luckFactor,
     competence,
+    sensorySkillMult: sensory.skillMult,
+    sensoryAccuracyMult: sensory.accuracyMult,
+    offhandSkillFactor,
   };
 }

@@ -43,13 +43,19 @@ export interface UnderwearWetnessReport {
   flavor: string;
 }
 
-function sizeFromScore(score: number): WetPatchSize {
-  // Scores are 0–100 wet+dry intensity on the crotch panel.
+/** Map wet+dry intensity 0–100 → patch size (exported for leg/region cues). */
+export function sizeFromWetScore(score: number): WetPatchSize {
+  // Scores are 0–100 wet+dry intensity on a cloth region.
   if (score < 4) return 'none';
   if (score < 12) return 'pinprick'; // hint / bead
   if (score < 28) return 'coin'; // noticeable damp circle
-  if (score < 55) return 'palm'; // broad crotch dampness
-  return 'soaked'; // heavy, obvious through outer layers later
+  if (score < 55) return 'palm'; // broad dampness
+  // Heavy panel; soak-through to outer layers becomes likely (not guaranteed instant).
+  return 'soaked';
+}
+
+function sizeFromScore(score: number): WetPatchSize {
+  return sizeFromWetScore(score);
 }
 
 function freshnessFrom(wet: number, dry: number): WetFreshness {

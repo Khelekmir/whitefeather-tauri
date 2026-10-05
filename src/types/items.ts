@@ -28,6 +28,12 @@ export type MaterialId =
 export type ArmorSizePreset = 'small' | 'medium' | 'large';
 
 /**
+ * Armor construction class — drives glancing-blow interactions.
+ * Explicit on templates; do not infer from material (leather gloves ≠ leather armor).
+ */
+export type ArmorClass = 'plate' | 'chainmail' | 'leather' | 'cloth';
+
+/**
  * How far a shirt-slot garment hangs (tunics, dresses, robes).
  * Casters often wear short/mid dresses or long robes with bare legs underneath.
  */
@@ -40,6 +46,15 @@ export type GarmentLengthPreset = 'tunic' | 'short' | 'long' | 'full';
  * - long: through forearm (Amberyl tunic)
  */
 export type GarmentSleevePreset = 'none' | 'short' | 'long';
+
+/** Arrow shaft mass grade (flight / impact mass). */
+export type ArrowShaftGrade = 'light' | 'mid' | 'heavy';
+
+/**
+ * Arrowhead style — lodged/extract rules key off these (not ad-hoc barbed variants).
+ * Unique/special heads can extend later.
+ */
+export type ArrowHeadStyle = 'practice' | 'hunting' | 'war' | 'bodkin';
 
 /**
  * How high footwear rises (foot slot).
@@ -203,6 +218,20 @@ export type FluidSoilKind =
 
 export type FluidSoilBag = Record<FluidSoilKind, FluidSoilChannel>;
 
+/**
+ * Wet-spot / drip zones on a garment.
+ * Supports soak-through and direct outer deposits (e.g. ejaculate on seat/thigh).
+ */
+export type ClothSoilRegion =
+  | 'crotch'
+  | 'seat'
+  | 'innerThigh'
+  | 'hem';
+
+export type FluidSoilByRegion = Partial<
+  Record<ClothSoilRegion, Partial<FluidSoilBag>>
+>;
+
 export interface LewdBonus {
   bonus: {
     allure: number;
@@ -210,8 +239,16 @@ export interface LewdBonus {
     libido: number;
     dominance: number;
   };
-  /** Cloth soil — architecture supports any garment; v1 writers target underwear. */
+  /**
+   * Legacy flat soil bag — treated as the `crotch` region.
+   * Prefer soiledByRegion for multi-zone tracking.
+   */
   soiled?: Partial<FluidSoilBag>;
+  /**
+   * Per-region soil (crotch / seat / innerThigh / hem).
+   * Outer-area male/female ejaculate can deposit directly into seat/innerThigh/hem.
+   */
+  soiledByRegion?: FluidSoilByRegion;
 }
 
 export interface ItemFlags {
@@ -251,6 +288,12 @@ export interface ItemTemplate {
   weaponType?: WeaponTypeId;
   /** Shields — maps to SHIELD_TYPES (buckler / heater / …). */
   shieldType?: string;
+
+  /**
+   * Armor construction class for glancing blows (plate / chainmail / leather / cloth).
+   * Omit on decorative soft pieces so they never decide glance class.
+   */
+  armorClass?: ArmorClass;
 
   /**
    * Armor torso reach. Ignored if `coverage` is set explicitly.
@@ -304,6 +347,15 @@ export interface ItemTemplate {
 
   /** Fresh instance max durability (fraction scale, typically 1). */
   maxDurability: number;
+
+  /** Arrow / projectile mass (abstract units; higher = more punch, worse long falloff). */
+  projectileMass?: number;
+  /** Tip energy coupling (style × head material). */
+  tipFactor?: number;
+  /** Arrow shaft grade (light / mid / heavy). */
+  shaftGrade?: ArrowShaftGrade;
+  /** Arrowhead style (practice / hunting / war / bodkin). */
+  arrowHeadStyle?: ArrowHeadStyle;
 }
 
 /**
@@ -317,10 +369,19 @@ export interface Item {
   itemType: ItemType;
   slot: ItemSlot;
   description: string;
+  /** For arrows: arrowhead material. */
   material: MaterialId;
   weaponType?: WeaponTypeId;
   /** Shields — see SHIELD_TYPES. */
   shieldType?: string;
+  /** Arrow / projectile mass (from template / shaft). */
+  projectileMass?: number;
+  /** Tip energy coupling (from template / style × material). */
+  tipFactor?: number;
+  /** Arrow shaft grade. */
+  shaftGrade?: ArrowShaftGrade;
+  /** Arrowhead style. */
+  arrowHeadStyle?: ArrowHeadStyle;
 
   combatStats: CombatBonus;
   lewdStats: LewdBonus;

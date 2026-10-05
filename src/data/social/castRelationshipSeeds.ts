@@ -171,6 +171,31 @@ const PAIR_SEEDS: PairSeed[] = [
       st: { warmth: 10 },
     },
   },
+  // Dorcas ↔ Natalie — married; deep trust, mutual care, settled desire
+  {
+    a: 'unit_dorcas',
+    b: 'unit_natalie',
+    aToB: {
+      lt: {
+        trust: 92,
+        affection: 90,
+        desire: 55,
+        familiarity: 95,
+        respect: 80,
+      },
+      st: { warmth: 40, desireHeat: 12 },
+    },
+    bToA: {
+      lt: {
+        trust: 94,
+        affection: 92,
+        desire: 52,
+        familiarity: 95,
+        respect: 78,
+      },
+      st: { warmth: 42, desireHeat: 10 },
+    },
+  },
 ];
 
 function applyDirection(

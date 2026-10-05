@@ -122,6 +122,92 @@ export const FLORINA_ITEMIZED_LEWD: ItemizedLewd = applyPatches('F', {
   buttockMain: { preference: 5, prefIntensity: 2, maxIntensity: 5 },
 });
 
+/** Matthew — reserved blade; modest prefs, low pain appetite. */
+export const MATTHEW_ITEMIZED_LEWD: ItemizedLewd = applyPatches('M', {
+  lips: { preference: 5, prefIntensity: 2, maxIntensity: 5 },
+  neckSide: { preference: 4, prefIntensity: 2, maxIntensity: 5 },
+  handPalm: { preference: 6, prefIntensity: 2, maxIntensity: 5 },
+  breast: { preference: 5, prefIntensity: 3, maxIntensity: 6 },
+  thighInner: { preference: 5, prefIntensity: 3, maxIntensity: 6 },
+  penisHead: { preference: 7, prefIntensity: 3, maxIntensity: 6 },
+  penisShaft: { preference: 6, prefIntensity: 3, maxIntensity: 6 },
+  testicles: { preference: 4, prefIntensity: 2, maxIntensity: 5 },
+  anus: { preference: 1, prefIntensity: 1, maxIntensity: 3, sensitivity: 0.85 },
+});
+
+/** Wil — cheerful archer; easy warmth, mid intensity, not pain-seeking. */
+export const WIL_ITEMIZED_LEWD: ItemizedLewd = applyPatches('M', {
+  lips: { preference: 7, prefIntensity: 3, maxIntensity: 6 },
+  neckSide: { preference: 6, prefIntensity: 3, maxIntensity: 6 },
+  handPalm: { preference: 7, prefIntensity: 3, maxIntensity: 6 },
+  breast: { preference: 6, prefIntensity: 3, maxIntensity: 6 },
+  thighInner: { preference: 7, prefIntensity: 4, maxIntensity: 7 },
+  penisHead: { preference: 8, prefIntensity: 4, maxIntensity: 7 },
+  penisShaft: { preference: 7, prefIntensity: 4, maxIntensity: 7 },
+  testicles: { preference: 6, prefIntensity: 3, maxIntensity: 6 },
+  anus: { preference: 2, prefIntensity: 2, maxIntensity: 4, sensitivity: 0.9 },
+});
+
+/** Dorcas — devoted husband; gentle caps, hands/closeness over flash. */
+export const DORCAS_ITEMIZED_LEWD: ItemizedLewd = applyPatches('M', {
+  lips: { preference: 8, prefIntensity: 3, maxIntensity: 6, sensitivity: 1.05 },
+  neckSide: { preference: 5, prefIntensity: 2, maxIntensity: 5 },
+  handPalm: { preference: 8, prefIntensity: 3, maxIntensity: 6, sensitivity: 1.05 },
+  breast: { preference: 6, prefIntensity: 3, maxIntensity: 6 },
+  thighInner: { preference: 6, prefIntensity: 3, maxIntensity: 6 },
+  penisHead: { preference: 7, prefIntensity: 3, maxIntensity: 6 },
+  penisShaft: { preference: 7, prefIntensity: 3, maxIntensity: 6 },
+  testicles: { preference: 5, prefIntensity: 2, maxIntensity: 5 },
+  anus: { preference: 1, prefIntensity: 1, maxIntensity: 3, sensitivity: 0.8 },
+  buttockMain: { preference: 4, prefIntensity: 2, maxIntensity: 5 },
+});
+
+/** Generic brigand — crude appetite, mid intensity, little refinement. */
+export const BRIGAND_ITEMIZED_LEWD: ItemizedLewd = applyPatches('M', {
+  lips: { preference: 5, prefIntensity: 4, maxIntensity: 7 },
+  neckSide: { preference: 4, prefIntensity: 3, maxIntensity: 6 },
+  handPalm: { preference: 5, prefIntensity: 3, maxIntensity: 6 },
+  breast: { preference: 7, prefIntensity: 5, maxIntensity: 8 },
+  thighInner: { preference: 6, prefIntensity: 4, maxIntensity: 7 },
+  penisHead: { preference: 7, prefIntensity: 5, maxIntensity: 8 },
+  penisShaft: { preference: 7, prefIntensity: 4, maxIntensity: 7 },
+  testicles: { preference: 5, prefIntensity: 3, maxIntensity: 6 },
+  anus: { preference: 2, prefIntensity: 2, maxIntensity: 4, sensitivity: 0.9 },
+  buttockMain: { preference: 6, prefIntensity: 4, maxIntensity: 7 },
+});
+
+/** Natalie — devoted wife; soft intimacy, low pain appetite, homebound warmth. */
+export const NATALIE_ITEMIZED_LEWD: ItemizedLewd = applyPatches('F', {
+  lips: { preference: 9, prefIntensity: 3, maxIntensity: 6, sensitivity: 1.1 },
+  neckNape: { preference: 7, prefIntensity: 2, maxIntensity: 5, sensitivity: 1.05 },
+  neckSide: { preference: 7, prefIntensity: 2, maxIntensity: 5 },
+  handPalm: { preference: 8, prefIntensity: 3, maxIntensity: 6, sensitivity: 1.05 },
+  breast: { preference: 7, prefIntensity: 3, maxIntensity: 6 },
+  nipple: { preference: 7, prefIntensity: 3, maxIntensity: 6, sensitivity: 1.05 },
+  thighInner: { preference: 6, prefIntensity: 3, maxIntensity: 6 },
+  clitoris: { preference: 7, prefIntensity: 3, maxIntensity: 6, sensitivity: 1.0 },
+  labiaMinora: { preference: 6, prefIntensity: 3, maxIntensity: 6 },
+  vaginaShallow: { preference: 7, prefIntensity: 3, maxIntensity: 6 },
+  vaginaDeep: { preference: 5, prefIntensity: 2, maxIntensity: 5, sensitivity: 0.95 },
+  anus: { preference: 1, prefIntensity: 1, maxIntensity: 3, sensitivity: 0.8 },
+  buttockMain: { preference: 5, prefIntensity: 2, maxIntensity: 5 },
+});
+
+/** Sapphira — restless noble; curious, intensity mid, modest deep caps. */
+export const SAPPHIRA_ITEMIZED_LEWD: ItemizedLewd = applyPatches('F', {
+  lips: { preference: 8, prefIntensity: 3, maxIntensity: 6, sensitivity: 1.05 },
+  neckNape: { preference: 7, prefIntensity: 3, maxIntensity: 6 },
+  breast: { preference: 7, prefIntensity: 3, maxIntensity: 6 },
+  nipple: { preference: 7, prefIntensity: 4, maxIntensity: 7 },
+  handPalm: { preference: 6, prefIntensity: 2, maxIntensity: 5 },
+  thighInner: { preference: 7, prefIntensity: 3, maxIntensity: 6 },
+  clitoris: { preference: 8, prefIntensity: 4, maxIntensity: 7 },
+  labiaMinora: { preference: 7, prefIntensity: 3, maxIntensity: 6 },
+  vaginaShallow: { preference: 7, prefIntensity: 4, maxIntensity: 7 },
+  vaginaDeep: { preference: 5, prefIntensity: 3, maxIntensity: 6, sensitivity: 0.95 },
+  anus: { preference: 2, prefIntensity: 1, maxIntensity: 4, sensitivity: 0.85 },
+});
+
 export const CAST_ITEMIZED_LEWD: Record<string, ItemizedLewd> = {
   unit_amberyl: AMBERYL_ITEMIZED_LEWD,
   unit_sain: SAIN_ITEMIZED_LEWD,
@@ -129,6 +215,12 @@ export const CAST_ITEMIZED_LEWD: Record<string, ItemizedLewd> = {
   unit_lyn: LYN_ITEMIZED_LEWD,
   unit_serra: SERRA_ITEMIZED_LEWD,
   unit_florina: FLORINA_ITEMIZED_LEWD,
+  unit_wil: WIL_ITEMIZED_LEWD,
+  unit_sapphira: SAPPHIRA_ITEMIZED_LEWD,
+  unit_matthew: MATTHEW_ITEMIZED_LEWD,
+  unit_dorcas: DORCAS_ITEMIZED_LEWD,
+  unit_natalie: NATALIE_ITEMIZED_LEWD,
+  unit_brigand: BRIGAND_ITEMIZED_LEWD,
 };
 
 export function itemizedLewdForCastId(id: string): ItemizedLewd | undefined {

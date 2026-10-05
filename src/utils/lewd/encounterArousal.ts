@@ -2,6 +2,13 @@ import type { Sex } from '../../types/characters';
 import { arousalSoftCapForErogenous } from './erogenous';
 import { LEWD_TUNING as T } from './lewdTuning';
 
+/**
+ * Body posture for cloth fluid routing (Lab stub; scene tags later).
+ * Standing: overflow can run to inner thigh / calf.
+ * Seated / lying: pool on seat — no “up the thighs” when knees bent.
+ */
+export type EncounterPosture = 'standing' | 'seated' | 'lying';
+
 /** Ephemeral encounter meters (0–100). Not the same as relational Desire. */
 export interface EncounterArousalState {
   arousal: number;
@@ -24,6 +31,8 @@ export interface EncounterArousalState {
    * Written on male orgasm; decays with dt. Females stay 0.
    */
   refractorySecondsRemaining: number;
+  /** Cloth drip / seat-pool routing. Default standing. */
+  posture?: EncounterPosture;
 }
 
 export interface EncounterArousalUpdate {
@@ -115,6 +124,7 @@ export function createEncounterArousalState(): EncounterArousalState {
     climaxCount: 0,
     receptivity: 1,
     refractorySecondsRemaining: 0,
+    posture: 'standing',
   };
 }
 

@@ -3,19 +3,29 @@ import {
   type BodyPartHealth,
   type BodyPartId,
   type ItemizedHealth,
+  type Unit as DetailedUnit,
 } from '../../types/characters';
 import type { Item } from '../../types/items';
+import { getItemTemplate } from '../../data/catalog/itemTemplates';
+import { getBodypartVitality } from '../../data/combat/bodypartVitality';
+import { getWeaponTypeInfo } from '../../data/combat/weaponTypes';
+import {
+  careExternalFlowMult,
+  hypovolemiaFlowMult,
+} from './bloodVolume';
 import { COMBAT_TUNING } from './combatTuning';
 import {
+  calcPartBleedRate,
   getExternalBleedIntensity,
   getInternalBleedIntensity,
 } from './deriveHealthPool';
 import { roundToThousandths } from './penalties';
+import { syncConcussionFlag } from './sensoryPerformance';
 
 const WC = () => COMBAT_TUNING.woundCare;
 
 export type WoundCareResult =
-  | { ok: true; part: BodyPartId; already: boolean }
+  | { ok: true; part: BodyPartId; already: boolean; warning?: string }
   | { ok: false; message: string };
 
 /**
@@ -25,6 +35,7 @@ export type WoundCareResult =
 export function healRatePerMinute(part: BodyPartHealth): number {
   const h = Math.max(0, Math.min(1, part.health));
   if (h >= 1) return 0;
+  // Ruined parts need a bandage to start convalescence (pressure alone ≠ heal).
   if (h <= 0 && !part.dressed) return 0;
 
   let rate = WC().naturalHealPerMinute;
@@ -38,13 +49,165 @@ export function healRatePerMinute(part: BodyPartHealth): number {
 
 /**
  * External clot intensity drop per minute (before × dt).
- * Bandage + full vulnerary clot mults.
+ * Care mults + bonus from slow effective flow (bandage/pressure/hypovolemia).
  */
-export function clotRatePerMinute(part: BodyPartHealth): number {
+export function clotRatePerMinute(
+  part: BodyPartHealth,
+  opts?: { bloodLostFraction?: number; bodyPartId?: BodyPartId }
+): number {
   let rate = COMBAT_TUNING.clotRatePerMinute;
-  if (part.dressed) rate *= WC().bandageClotMult;
+  if (part.dressed) {
+    rate *= WC().bandageClotMult;
+    if (part.directPressure) rate *= WC().pressureOverBandageClotMult;
+  } else if (part.directPressure) {
+    rate *= WC().pressureClotMult;
+  }
   if (part.vulnerary) rate *= WC().vulneraryClotMult;
+
+  const careFlow = careExternalFlowMult(part);
+  const arterial =
+    opts?.bodyPartId != null
+      ? getBodypartVitality(opts.bodyPartId).bleedCriticality === 'arterial'
+      : false;
+  const hypo = hypovolemiaFlowMult(opts?.bloodLostFraction ?? 0, arterial);
+  const effectiveFlow = Math.max(0, Math.min(1, careFlow * hypo));
+  rate *=
+    1 +
+    COMBAT_TUNING.hypovolemia.clotBonusFromSlowFlow * (1 - effectiveFlow);
+
   return rate;
+}
+
+export function applyDirectPressure(
+  itemized: ItemizedHealth,
+  part: BodyPartId
+): WoundCareResult {
+  const s = itemized[part];
+  if (!s) return { ok: false, message: `Unknown body part ${part}.` };
+  if (s.directPressure) {
+    return { ok: true, part, already: true };
+  }
+  s.directPressure = true;
+  return { ok: true, part, already: false };
+}
+
+export function releaseDirectPressure(
+  itemized: ItemizedHealth,
+  part: BodyPartId
+): WoundCareResult {
+  const s = itemized[part];
+  if (!s) return { ok: false, message: `Unknown body part ${part}.` };
+  if (!s.directPressure) {
+    return { ok: true, part, already: true };
+  }
+  s.directPressure = false;
+  return { ok: true, part, already: false };
+}
+
+export function releaseAllDirectPressure(itemized: ItemizedHealth): number {
+  let n = 0;
+  for (const part of BODY_PARTS) {
+    const s = itemized[part];
+    if (s?.directPressure) {
+      s.directPressure = false;
+      n += 1;
+    }
+  }
+  return n;
+}
+
+/** Worst active bleed by combined external+internal rate (0 if none). */
+export function findWorstBleedPart(
+  itemized: ItemizedHealth
+): BodyPartId | null {
+  return findWorstUntreatedBleedPart(itemized, 'any');
+}
+
+/**
+ * Highest bleed by blood-flow rate (criticality × intensity × care).
+ * - `bandage`: skip already dressed
+ * - `vulnerary`: skip already salved
+ * - `any`: any active bleed
+ */
+export function findWorstUntreatedBleedPart(
+  itemized: ItemizedHealth,
+  treatment: 'bandage' | 'vulnerary' | 'any'
+): BodyPartId | null {
+  let best: BodyPartId | null = null;
+  let bestRate = 0;
+  for (const part of BODY_PARTS) {
+    const s = itemized[part];
+    if (!s) continue;
+    if (treatment === 'bandage' && s.dressed) continue;
+    if (treatment === 'vulnerary' && s.vulnerary) continue;
+    const rate = calcPartBleedRate(part, s);
+    if (rate > bestRate) {
+      bestRate = rate;
+      best = part;
+    }
+  }
+  return bestRate > 0 ? best : null;
+}
+
+/**
+ * Gameplay rule: direct pressure needs a free hand.
+ * Offhand occupied (weapon/shield) or a two-handed mainhand blocks it.
+ */
+export function hasFreeHandForPressure(
+  unit: DetailedUnit,
+  itemsById: Record<string, Item>
+): boolean {
+  const offId = unit.equipment.offhand;
+  if (offId) {
+    const off = itemsById[offId];
+    if (off && off.itemType !== 'other') return false;
+  }
+  const mainId = unit.equipment.mainhand;
+  if (!mainId) return true;
+  const main = itemsById[mainId];
+  if (!main || main.itemType !== 'weapon') return true;
+  const template = getItemTemplate(main.templateId);
+  const wType = main.weaponType ?? template?.weaponType;
+  // True two-handers (lance, etc.) occupy both hands even with empty offhand slot.
+  if (wType && getWeaponTypeInfo(wType).twoHanded) return false;
+  return true;
+}
+
+/**
+ * Sync hold-pressure stance onto the worst bleed (or clear all).
+ * Returns the part pressed, or null if released / unavailable.
+ */
+export function syncDirectPressureHold(
+  unit: DetailedUnit,
+  itemsById: Record<string, Item>,
+  holding: boolean
+): { part: BodyPartId | null; ok: boolean; message: string } {
+  const itemized = unit.combatStats.itemizedHealth;
+  releaseAllDirectPressure(itemized);
+  if (!holding) {
+    return { part: null, ok: true, message: 'Released direct pressure.' };
+  }
+  if (!hasFreeHandForPressure(unit, itemsById)) {
+    return {
+      part: null,
+      ok: false,
+      message: `${unit.name} needs a free hand to apply direct pressure.`,
+    };
+  }
+  const part = findWorstBleedPart(itemized);
+  if (!part) {
+    return {
+      part: null,
+      ok: false,
+      message: `${unit.name} has no active bleed to press.`,
+    };
+  }
+  applyDirectPressure(itemized, part);
+  return {
+    part,
+    ok: true,
+    message: `${unit.name} applies direct pressure to ${part}.`,
+  };
 }
 
 /**
@@ -75,6 +238,19 @@ export function applyBandage(
   return { ok: true, part, already: false };
 }
 
+export function removeBandage(
+  itemized: ItemizedHealth,
+  part: BodyPartId
+): WoundCareResult {
+  const s = itemized[part];
+  if (!s) return { ok: false, message: `Unknown body part ${part}.` };
+  if (!s.dressed) {
+    return { ok: true, part, already: true };
+  }
+  s.dressed = false;
+  return { ok: true, part, already: false };
+}
+
 export function applyVulnerary(
   itemized: ItemizedHealth,
   part: BodyPartId
@@ -85,6 +261,30 @@ export function applyVulnerary(
     return { ok: true, part, already: true };
   }
   s.vulnerary = true;
+  // Ruined fountain still pinned without occlusion — salve helps rate a bit
+  // once unpinned, but clot stays locked until pressure or bandage.
+  const pinned =
+    s.health <= 0 && !s.dressed && !s.directPressure;
+  return {
+    ok: true,
+    part,
+    already: false,
+    warning: pinned
+      ? 'Vulnerary needs pressure or a bandage to stop a ruined fountain (clot locked until then).'
+      : undefined,
+  };
+}
+
+export function removeVulnerary(
+  itemized: ItemizedHealth,
+  part: BodyPartId
+): WoundCareResult {
+  const s = itemized[part];
+  if (!s) return { ok: false, message: `Unknown body part ${part}.` };
+  if (!s.vulnerary) {
+    return { ok: true, part, already: true };
+  }
+  s.vulnerary = false;
   return { ok: true, part, already: false };
 }
 
@@ -120,13 +320,17 @@ export function applyNaturalHealing(
       s.health = 1;
       s.bleed = 0;
       s.internalBleed = 0;
-      if (s.dressed || s.vulnerary) {
+      if (s.dressed || s.vulnerary || s.directPressure) {
         s.dressed = false;
         s.vulnerary = false;
+        s.directPressure = false;
         clearedCare.push(part);
       }
     }
   }
+
+  // Head heal may clear concussion once above threshold.
+  syncConcussionFlag(itemized);
 
   return { healedParts, clearedCare };
 }

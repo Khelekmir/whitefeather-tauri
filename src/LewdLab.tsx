@@ -31,6 +31,7 @@ import {
   createEncounterArousalState,
   idleEncounterArousal,
   type EncounterArousalState,
+  type EncounterPosture,
 } from './utils/lewd/encounterArousal';
 import { arousalSoftCapForErogenous, erogenousRank } from './utils/lewd/erogenous';
 import {
@@ -46,7 +47,14 @@ import {
   validTargetsForAction,
 } from './utils/lewd/lewdCatalogAccess';
 import { LEWD_TUNING } from './utils/lewd/lewdTuning';
-import { bodilyStateFromHormones } from './utils/lewd/cycleBodilyState';
+import { warpedPreferredIntensity } from './utils/lewd/preferredIntensityWarp';
+import { lewdTargetToBodyParts } from './data/lewd/lewdPartCoverage';
+import { maxBruiseOnParts } from './utils/combat/bruise';
+import {
+  bodilyStateFromHormones,
+  feltWetness,
+} from './utils/lewd/cycleBodilyState';
+import { describeFeltWetnessFlavor } from './utils/lewd/feltWetnessFlavor';
 import {
   advanceReproduction,
   describeReproduction,
@@ -54,6 +62,7 @@ import {
 import {
   advanceFluidSoil,
   deriveSoilCues,
+  launderCrotchLayers,
   launderUnderwear,
 } from './utils/lewd/fluidSoil';
 import { advanceStandingLust } from './utils/lewd/lustDrive';
@@ -611,7 +620,9 @@ function LewdLab() {
             `Playing t+${steps}s… ${active.map((c) => channelLabel(c)).join(' + ')}`
           );
           pushLog(
-            `t+${steps}s: ${result.band.toUpperCase()} · A ${result.encounter.arousal.toFixed(0)} E ${result.encounter.edge.toFixed(0)} · rem ${localChannels
+            `t+${steps}s: ${result.band.toUpperCase()} · A ${result.encounter.arousal.toFixed(0)} E ${result.encounter.edge.toFixed(0)}${
+              result.lubricationNote ? ` · ${result.lubricationNote}` : ''
+            } · rem ${localChannels
               .map((c) => `${c.actionId}:${c.remainingSeconds ?? 0}`)
               .join(' ')}`
           );
@@ -734,7 +745,9 @@ function LewdLab() {
           );
           if (steps === 1 || steps % 5 === 0 || result.climaxed || result.ruined) {
             pushLog(
-              `t+${steps}s [${phase.label}]: ${result.band.toUpperCase()} · A ${result.encounter.arousal.toFixed(0)} E ${result.encounter.edge.toFixed(0)} · mind ${(result.encounter.discomfortPsych ?? 0).toFixed(0)}`
+              `t+${steps}s [${phase.label}]: ${result.band.toUpperCase()} · A ${result.encounter.arousal.toFixed(0)} E ${result.encounter.edge.toFixed(0)} · mind ${(result.encounter.discomfortPsych ?? 0).toFixed(0)}${
+                result.lubricationNote ? ` · ${result.lubricationNote}` : ''
+              }`
             );
           }
 
@@ -784,18 +797,37 @@ function LewdLab() {
     );
     setEncounter(nextRecv);
     setProactiveEncounter(nextPro);
-    // High encounter arousal can leave a panty wet spot without foreplay.
+    // High encounter arousal raises felt wetness → panty wet spot without foreplay.
     if (recipient?.sex === 'F') {
       const hours = seconds / 3600;
       // Scale lab seconds into a readable drip (idle 15s ≈ a few in-world minutes).
       const dripHours = Math.max(hours, seconds / 60);
       const dripped = advanceFluidSoil(recipient, dripHours, {
         encounterArousal: nextRecv.arousal,
+        posture: nextRecv.posture ?? encounter.posture ?? 'standing',
       });
       setRecipient(dripped);
-      const cues = deriveSoilCues(dripped);
+      const cues = deriveSoilCues(dripped, {
+        posture: nextRecv.posture ?? encounter.posture ?? 'standing',
+      });
+      const h = hormonesForUnit(dripped);
+      const body = h
+        ? bodilyStateFromHormones(
+            h,
+            dripped.lewdStats.static.ovulationCycleLength || 28
+          )
+        : null;
+      const wet = body
+        ? feltWetness(body.wetness01, {
+            lust: dripped.lewdStats.dynamic.lust ?? 0,
+            encounterArousal: nextRecv.arousal,
+          })
+        : null;
+      const wetBit = wet
+        ? ` · felt ${(wet.feltWetness * 100).toFixed(0)}% (ready ${(wet.readiness01 * 100).toFixed(0)}%${wet.oversaturated ? ' · oversat' : ''} · cycle ${(wet.cycleWetness * 100).toFixed(0)}% +arousal ${(wet.arousalBoost * 100).toFixed(0)}%)`
+        : '';
       pushLog(
-        `Idle ${seconds}s — recv A ${encounter.arousal.toFixed(0)}→${nextRecv.arousal.toFixed(0)} E ${encounter.edge.toFixed(0)}→${nextRecv.edge.toFixed(0)} · pro A ${proactiveEncounter.arousal.toFixed(0)}→${nextPro.arousal.toFixed(0)} E ${proactiveEncounter.edge.toFixed(0)}→${nextPro.edge.toFixed(0)} · soil ${cues.summary}`
+        `Idle ${seconds}s — recv A ${encounter.arousal.toFixed(0)}→${nextRecv.arousal.toFixed(0)} E ${encounter.edge.toFixed(0)}→${nextRecv.edge.toFixed(0)} · pro A ${proactiveEncounter.arousal.toFixed(0)}→${nextPro.arousal.toFixed(0)} E ${proactiveEncounter.edge.toFixed(0)}→${nextPro.edge.toFixed(0)}${wetBit} · soil ${cues.summary}`
       );
     } else {
       pushLog(
@@ -1099,6 +1131,12 @@ function LewdLab() {
                 const fertile = isInFertileWindow(h, len);
                 const lustT = cycleLustTarget(recipient.lewdStats.static.libido, h);
                 const body = bodilyStateFromHormones(h, len);
+                const lustNow = recipient.lewdStats.dynamic.lust ?? 0;
+                const wet = feltWetness(body.wetness01, {
+                  lust: lustNow,
+                  encounterArousal: encounter.arousal,
+                });
+                const wetCapPct = LEWD_TUNING.cycle.wetnessCap * 100;
                 return (
                   <>
                     <p style={{ margin: '0 0 6px', fontSize: 12, opacity: 0.75 }}>
@@ -1107,24 +1145,89 @@ function LewdLab() {
                       {(body.fertileCrest01 * 100).toFixed(0)}% · lust→{lustT.toFixed(0)}
                     </p>
                     <p style={{ margin: '0 0 8px', fontSize: 11, opacity: 0.7, lineHeight: 1.4 }}>
-                      Mucus <strong>{body.mucusKind}</strong> · wetness{' '}
-                      {(body.wetness01 * 100).toFixed(0)}% · genital sens ×
+                      Mucus <strong>{body.mucusKind}</strong> · cycle{' '}
+                      {(wet.cycleWetness * 100).toFixed(0)}% · felt{' '}
+                      {(wet.feltWetness * 100).toFixed(0)}% · ready{' '}
+                      {(wet.readiness01 * 100).toFixed(0)}%
+                      {wet.oversaturated ? ' · oversat' : ''} · genital sens ×
                       {body.genitalSensMult.toFixed(2)}
                       <br />
                       <span style={{ opacity: 0.85 }}>{body.blurb}</span>
+                      <br />
+                      <span style={{ opacity: 0.75 }}>
+                        100% ready = comfortable penetration lube (size/intensity gating later)
+                      </span>
                     </p>
                     <Meter
-                      label="Wetness"
-                      value={body.wetness01 * 100}
+                      label="Cycle ambient"
+                      value={wet.cycleWetness * 100}
                       max={100}
                       color="#67e8f9"
                     />
+                    <Meter
+                      label={`Felt wetness (ready@100 · cap ${wetCapPct.toFixed(0)})`}
+                      value={wet.feltWetness * 100}
+                      max={wetCapPct}
+                      color={wet.oversaturated ? '#f472b6' : '#f9a8d4'}
+                    />
+                    <p
+                      style={{
+                        margin: '0 0 8px',
+                        fontSize: 11,
+                        opacity: 0.78,
+                        lineHeight: 1.4,
+                        color: '#f9a8d4',
+                      }}
+                    >
+                      {describeFeltWetnessFlavor(wet.feltWetness)}
+                    </p>
+                    <p style={{ margin: '0 0 8px', fontSize: 11, opacity: 0.6, lineHeight: 1.4 }}>
+                      Arousal boost +{(wet.arousalBoost * 100).toFixed(0)}%
+                      {' · '}lust {lustNow.toFixed(0)} → +
+                      {(wet.lustBoost * 100).toFixed(0)}%
+                      {' · '}enc A {encounter.arousal.toFixed(0)} → +
+                      {(wet.encounterBoost * 100).toFixed(0)}%
+                      {wet.desireMoodBoost > 0.001
+                        ? ` · mood +${(wet.desireMoodBoost * 100).toFixed(0)}%`
+                        : ''}
+                    </p>
                     <p style={{ margin: '0 0 8px', fontSize: 11, opacity: 0.55 }}>
                       E {h.estrogen.toFixed(1)} · T {h.testosterone.toFixed(2)} · P{' '}
                       {h.progesterone.toFixed(1)}
                     </p>
+                    <label
+                      style={{
+                        fontSize: 11,
+                        opacity: 0.7,
+                        display: 'block',
+                        marginBottom: 8,
+                      }}
+                    >
+                      Posture (cloth drip routing)
+                      <select
+                        value={encounter.posture ?? 'standing'}
+                        onChange={(e) =>
+                          setEncounter({
+                            ...encounter,
+                            posture: e.target.value as EncounterPosture,
+                          })
+                        }
+                        style={{
+                          ...selectStyle,
+                          marginTop: 3,
+                          display: 'block',
+                          width: '100%',
+                        }}
+                      >
+                        <option value="standing">Standing — thigh run possible</option>
+                        <option value="seated">Seated — pool on seat</option>
+                        <option value="lying">Lying — pool on seat</option>
+                      </select>
+                    </label>
                     {(() => {
-                      const cues = deriveSoilCues(recipient);
+                      const cues = deriveSoilCues(recipient, {
+                        posture: encounter.posture ?? 'standing',
+                      });
                       const w = cues.wetness;
                       return (
                         <div style={{ margin: '0 0 8px', fontSize: 11, color: '#fcd34d' }}>
@@ -1149,6 +1252,14 @@ function LewdLab() {
                               {w.freshness}
                               <br />
                               <span style={{ opacity: 0.85 }}>{w.flavor}</span>
+                            </div>
+                          ) : null}
+                          {cues.legRegions.length > 0 ? (
+                            <div style={{ marginTop: 4, opacity: 0.85, lineHeight: 1.4 }}>
+                              Outer ·{' '}
+                              {cues.legRegions
+                                .map((r) => `${r.region} ${r.size}`)
+                                .join(' · ')}
                             </div>
                           ) : null}
                           <div style={{ marginTop: 6, fontSize: 11, color: '#c4b5fd' }}>
@@ -1244,6 +1355,20 @@ function LewdLab() {
                         }}
                       >
                         Reset panties
+                      </button>
+                      <button
+                        type="button"
+                        style={smallBtn}
+                        onClick={() => {
+                          const cleaned = launderCrotchLayers(recipient);
+                          setRecipient(cleaned);
+                          const cues = deriveSoilCues(cleaned);
+                          pushLog(
+                            `${recipient.name} crotch layers cleaned (lab) → ${cues.summary}`
+                          );
+                        }}
+                      >
+                        Clean all crotch cloth
                       </button>
                     </div>
                   </>
@@ -1462,6 +1587,29 @@ function LewdLab() {
                     bit.sensitivity
                   )
                 : 0;
+            const intensityWarpPreview = (() => {
+              if (!recipient || !prefs) return null;
+              const maxI = prefs.maxIntensity ?? 8;
+              const authored = prefs.prefIntensity ?? 3;
+              const bruiseSev = maxBruiseOnParts(
+                recipient.combatStats.itemizedHealth,
+                lewdTargetToBodyParts(ch.targetPart)
+              );
+              const base = Math.max(
+                LEWD_TUNING.intensityWarp.minPreferred,
+                Math.min(
+                  maxI,
+                  authored -
+                    bruiseSev * LEWD_TUNING.bruisePrefIntensityPenalty
+                )
+              );
+              return warpedPreferredIntensity({
+                basePreferred: base,
+                maxIntensity: maxI,
+                unit: recipient,
+                encounterArousal: encounter.arousal,
+              });
+            })();
             return (
               <div
                 key={`ch-${index}`}
@@ -1549,9 +1697,26 @@ function LewdLab() {
                 </label>
                 {bit && prefs ? (
                   <div style={{ fontSize: 11, opacity: 0.65, marginBottom: 8, lineHeight: 1.4 }}>
-                    {bit.name} · prefInt {prefs.prefIntensity} · max {prefs.maxIntensity} · ero{' '}
-                    {ero.toFixed(2)} · soft cap ~{arousalSoftCapForErogenous(ero).toFixed(0)} ·
-                    needs arousal ≥{needA.toFixed(0)}
+                    {bit.name}
+                    {intensityWarpPreview ? (
+                      <>
+                        {' '}
+                        · prefInt {intensityWarpPreview.basePreferred.toFixed(1)}→
+                        {intensityWarpPreview.preferredNow.toFixed(1)}
+                        {' '}
+                        (heat {(intensityWarpPreview.heat01 * 100).toFixed(0)}% · span +
+                        {intensityWarpPreview.hotSpan.toFixed(1)})
+                      </>
+                    ) : (
+                      <>
+                        {' '}
+                        · prefInt {prefs.prefIntensity}
+                      </>
+                    )}
+                    {' '}
+                    · max {prefs.maxIntensity} · ero {ero.toFixed(2)} · soft cap ~
+                    {arousalSoftCapForErogenous(ero).toFixed(0)} · needs arousal ≥
+                    {needA.toFixed(0)}
                     {encounter.arousal < needA ? (
                       <span style={{ color: '#fda4af' }}>
                         {' '}

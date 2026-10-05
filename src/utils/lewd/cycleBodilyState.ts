@@ -1,12 +1,21 @@
+import type { Unit as DetailedUnit } from '../../types/characters';
 import { LEWD_TUNING as T } from './lewdTuning';
 import {
   fertileCrest01,
+  hormonesForUnit,
   type HormoneSnapshot,
 } from './ovulationCycle';
 
 /**
  * Derived cervical-mucus / wetness / genital-sensitivity state.
  * Ported day-bands from Coding_Notes/.../cycle/discharge.md — not a durable meter.
+ *
+ * Felt wetness contract:
+ * - readinessWetness (1.0) = penetration-ready lubrication
+ * - values above 1.0 (up to wetnessCap) = oversaturation → heavier drip / seepage
+ * - clothes may damp below readiness; 1.0 is not the soil gate
+ *
+ * Later: lubrication gates vaginal/anal penetration comfort (size × intensity).
  */
 export type MucusKind =
   | 'bloody'
@@ -18,7 +27,10 @@ export type MucusKind =
 
 export interface CycleBodilyState {
   mucusKind: MucusKind;
-  /** Ambient lubrication 0–1 (felt as wetness, not climax fluid). */
+  /**
+   * Cycle-only ambient lubrication (lowered so lust/arousal have headroom).
+   * Peak ovulation alone stays below readiness.
+   */
   wetness01: number;
   /** Runtime mult for genital/vulvic target sensitivity. */
   genitalSensMult: number;
@@ -26,6 +38,55 @@ export interface CycleBodilyState {
   fertileCrest01: number;
   blurb: string;
 }
+
+/** Optional arousal / mood inputs layered onto cycle ambient wetness. */
+export interface ArousalWetnessInput {
+  /** Standing lust 0–100 (unit.lewdStats.dynamic.lust). */
+  lust?: number;
+  /** Ephemeral encounter arousal 0–100. */
+  encounterArousal?: number;
+  /**
+   * Reserved mild desire / mood contribution 0–1.
+   * Hook for later; defaults to 0 when omitted.
+   */
+  desireMood01?: number;
+}
+
+/**
+ * Cycle ambient + arousal boosts → felt vaginal wetness.
+ * Players discover: daydream / stim → arousal ↑ → slick ↑ → cloth dampens.
+ */
+export interface FeltWetnessReport {
+  /** Cycle-only ambient. */
+  cycleWetness: number;
+  lustBoost: number;
+  encounterBoost: number;
+  desireMoodBoost: number;
+  /** Sum of arousal-side boosts before clamp. */
+  arousalBoost: number;
+  /** Felt slick clamped to wetnessCap (may exceed readiness 1.0). */
+  feltWetness: number;
+  /** 0–1 progress toward penetration-ready (felt / readiness, capped at 1). */
+  readiness01: number;
+  /** True when felt exceeds readiness (oversaturation). */
+  oversaturated: boolean;
+
+  /** @deprecated alias — cycleWetness */
+  cycleWetness01: number;
+  /** @deprecated alias — lustBoost */
+  lustBoost01: number;
+  /** @deprecated alias — encounterBoost */
+  encounterBoost01: number;
+  /** @deprecated alias — desireMoodBoost */
+  desireMoodBoost01: number;
+  /** @deprecated alias — arousalBoost */
+  arousalBoost01: number;
+  /** @deprecated alias — feltWetness (may be >1) */
+  effectiveWetness01: number;
+}
+
+/** @deprecated use FeltWetnessReport */
+export type EffectiveWetnessReport = FeltWetnessReport;
 
 const MUCUS_BLURB: Record<MucusKind, string> = {
   bloody: 'Menstrual flow — the body is shedding, not inviting.',
@@ -51,21 +112,25 @@ export function mucusKindForDay(day: number, lengthDays: number): MucusKind {
   return 'dry';
 }
 
+/**
+ * Cycle ambient only — kept below readiness at peak so lust/arousal can still move the needle.
+ * Illustrative peak eggWhite ≈ 0.48 + crest×0.12 + E boost ≤ ~0.68.
+ */
 function wetnessFor(
   kind: MucusKind,
   crest: number,
   estrogen: number
 ): number {
   const base: Record<MucusKind, number> = {
-    bloody: 0.35,
-    scarce: 0.18,
-    sticky: 0.32,
-    eggWhite: 0.78,
-    cloudy: 0.4,
-    dry: 0.12,
+    bloody: 0.22,
+    scarce: 0.1,
+    sticky: 0.2,
+    eggWhite: 0.48,
+    cloudy: 0.26,
+    dry: 0.08,
   };
-  const eBoost = Math.min(0.12, Math.log(Math.max(1, estrogen)) * 0.04);
-  return Math.max(0, Math.min(1, base[kind] + crest * 0.18 + eBoost));
+  const eBoost = Math.min(0.08, Math.log(Math.max(1, estrogen)) * 0.025);
+  return Math.max(0, Math.min(1, base[kind] + crest * 0.12 + eBoost));
 }
 
 export function bodilyStateFromHormones(
@@ -122,4 +187,102 @@ export function encounterCycleReceptivityMult(crest01: number): number {
     C.encounterRecvFloor +
     (C.encounterRecvCrest - C.encounterRecvFloor) * crest01
   );
+}
+
+function clamp01(n: number): number {
+  return Math.max(0, Math.min(1, n));
+}
+
+function clampFelt(n: number): number {
+  const cap = T.cycle.wetnessCap;
+  return Math.max(0, Math.min(cap, n));
+}
+
+/**
+ * Layer lust / encounter arousal / optional desire-mood onto cycle ambient wetness.
+ * May exceed readiness (1.0) up to wetnessCap when arousal is strong/persistent.
+ */
+export function feltWetness(
+  cycleWetness: number,
+  input?: ArousalWetnessInput
+): FeltWetnessReport {
+  const W = T.cycle.arousalWetness;
+  const ready = T.cycle.readinessWetness;
+  const lust01 = clamp01((input?.lust ?? 0) / 100);
+  const enc01 = clamp01((input?.encounterArousal ?? 0) / 100);
+  const desireMood01 = clamp01(input?.desireMood01 ?? 0);
+
+  const lustBoost = lust01 * W.lustBoostMax;
+  const encounterBoost = enc01 * W.encounterBoostMax;
+  const desireMoodBoost = desireMood01 * W.desireMoodBoostMax;
+  const arousalBoost = lustBoost + encounterBoost + desireMoodBoost;
+  const cycle = Math.max(0, cycleWetness);
+  const felt = clampFelt(cycle + arousalBoost);
+  const readiness01 = clamp01(felt / Math.max(0.01, ready));
+
+  return {
+    cycleWetness: cycle,
+    lustBoost,
+    encounterBoost,
+    desireMoodBoost,
+    arousalBoost,
+    feltWetness: felt,
+    readiness01,
+    oversaturated: felt > ready + 1e-6,
+    cycleWetness01: cycle,
+    lustBoost01: lustBoost,
+    encounterBoost01: encounterBoost,
+    desireMoodBoost01: desireMoodBoost,
+    arousalBoost01: arousalBoost,
+    effectiveWetness01: felt,
+  };
+}
+
+/** @deprecated use feltWetness */
+export function effectiveWetness01(
+  cycleWetness01: number,
+  input?: ArousalWetnessInput
+): FeltWetnessReport {
+  return feltWetness(cycleWetness01, input);
+}
+
+/** Convenience: cycle bodily state + unit lust / optional encounter → felt slick. */
+export function feltWetnessForUnit(
+  unit: DetailedUnit,
+  opts?: {
+    encounterArousal?: number;
+    desireMood01?: number;
+    /** Precomputed cycle state; recomputed from hormones when omitted. */
+    bodily?: CycleBodilyState | null;
+  }
+): FeltWetnessReport | null {
+  if (unit.sex !== 'F') return null;
+  const bodily =
+    opts?.bodily ??
+    (() => {
+      const h = hormonesForUnit(unit);
+      if (!h) return null;
+      return bodilyStateFromHormones(
+        h,
+        unit.lewdStats.static.ovulationCycleLength || 28
+      );
+    })();
+  if (!bodily) return null;
+  return feltWetness(bodily.wetness01, {
+    lust: unit.lewdStats.dynamic.lust ?? 0,
+    encounterArousal: opts?.encounterArousal,
+    desireMood01: opts?.desireMood01,
+  });
+}
+
+/** @deprecated use feltWetnessForUnit */
+export function effectiveWetnessForUnit(
+  unit: DetailedUnit,
+  opts?: {
+    encounterArousal?: number;
+    desireMood01?: number;
+    bodily?: CycleBodilyState | null;
+  }
+): FeltWetnessReport | null {
+  return feltWetnessForUnit(unit, opts);
 }

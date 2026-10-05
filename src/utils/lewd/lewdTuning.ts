@@ -20,6 +20,31 @@ export const LEWD_TUNING = {
   bruisePrefIntensityPenalty: 3,
 
   /**
+   * Arousal-warped preferred intensity: baseline prefIntensity climbs with heat.
+   * Gate (may we act?) stays separate — this only moves the attunement sweet spot.
+   */
+  intensityWarp: {
+    /** Share of heat01 from encounter arousal 0–100. */
+    encounterArousalWeight: 0.8,
+    /** Share of heat01 from standing lust 0–100. */
+    lustWeight: 0.2,
+    /** Minimum intensity ranks of climb span at libido scale. */
+    spanFloor: 0.45,
+    /** Added span per (libido/5); lib 5 → +0.4 before temperament. */
+    spanPerLibido: 0.4,
+    /** 1 = linear; >1 = late takeoff (need more heat before craving intensity). */
+    warpCurve: 1,
+    /** Temperament mult on hotSpan (blended primary/secondary). */
+    temperament: {
+      Sanguine: 1.15,
+      Choleric: 1.12,
+      Melancholic: 0.82,
+      Phlegmatic: 0.88,
+    },
+    minPreferred: 0.5,
+  },
+
+  /**
    * Erogenous ranking from catalog sensitivity.
    * Neck ~4.5 → low rank; lips ~6.5 → modest; clit/glans ~9.5+ → near 1.
    */
@@ -326,20 +351,139 @@ export const LEWD_TUNING = {
     encounterRecvCrest: 1.16,
     /** Non-genital targets get a muted crest echo. */
     nonGenitalCrestShare: 0.22,
-    /** Wetness above this can emit ambient lubrication notes on genital play. */
+    /**
+     * Felt wetness at this value = penetration-ready lubrication (comfort benchmark).
+     * Clothes may damp below this; oversat above this escalates drip / seepage.
+     */
+    readinessWetness: 1.0,
+    /** Hard ceiling on felt wetness (readiness + oversat headroom). */
+    wetnessCap: 1.75,
+    /** Felt wetness above this can emit ambient lubrication notes on genital play. */
     ambientWetnessThreshold: 0.62,
     /**
-     * Idle / Pass Time arousal drip → panty wet spot (no foreplay required).
-     * Drive blends lust, cycle wetness, and optional encounter arousal.
+     * Arousal → vaginal wetness boost (layered on lowered cycle ambient).
+     * Cause→effect: lust / encounter arousal raise felt slick; drip reads that.
+     */
+    arousalWetness: {
+      /** Max felt added at standing lust = 100. */
+      lustBoostMax: 0.4,
+      /** Max felt added at encounter arousal = 100. */
+      encounterBoostMax: 0.45,
+      /**
+       * Reserved mild desire / mood contribution (wire later).
+       * Pass desireMood01 0–1 into feltWetness helpers when ready.
+       */
+      desireMoodBoostMax: 0.1,
+    },
+    /**
+     * Idle / Pass Time drip → panty wet spot from felt wetness.
+     * Intensity scales through oversat up to wetnessCap.
+     * Guardrail: avg ♀ at peak+base lust (~felt 1.0) needs ≥~8h to fill underwear capacity.
      */
     arousalDrip: {
-      /** Below this 0–1 drive, no idle drip. */
-      driveThreshold: 0.36,
-      /** Base amount01 per hour at full drive (×100 → wet points via applyWetSoil). */
-      amountPerHourAtFullDrive: 0.07,
-      lustWeight: 0.55,
-      cycleWetWeight: 0.3,
-      encounterArousalWeight: 0.5,
+      /** Felt wetness below this leaves no idle wet spot (below readiness). */
+      soilFromWetnessThreshold: 0.42,
+      /** amount01 per hour when felt wetness = wetnessCap (×100 → wet points). */
+      amountPerHourAtCap: 0.12,
+    },
+    /**
+     * In-scene per-beat cloth damp from felt wetness (kiss/fondle included).
+     * Genital play adds a modest bonus — not a full felt-volume dump.
+     */
+    sceneArousalSoil: {
+      /** Felt below this → no per-beat arousal seepage. */
+      soilFromWetnessThreshold: 0.42,
+      /** amount01 / sec at felt = wetnessCap (before quality scale). */
+      dripPerSecAtCap: 0.004,
+      /** How much beat quality (0–1) can scale drip (± around 1). */
+      qualityWeight: 0.25,
+      /** Genital-target bonus amount01 scale × felt (capped). */
+      genitalBonusBase: 0.14,
+      /** Max genital bonus amount01 per beat. */
+      genitalBonusCap: 0.22,
+      /**
+       * Lab flavor gates by soil rate (amount01 / sec this beat).
+       * Below first gate → no cloth note.
+       */
+      flavorRate: {
+        slick: 0.0006,
+        beading: 0.0018,
+        dampening: 0.004,
+        // above dampening → dripping
+      },
+    },
+    /**
+     * Crotch cloth seepage: inner soak capacity → overflow to outer layers.
+     * Kind-open for arousal, semen, discharge, urine (stub), future oil/slime.
+     */
+    clothSeepage: {
+      /**
+       * Default wet-point capacity (underwear crotch). Palm blot (~28–54) should
+       * fit with headroom; soaked (~55+) approaches overflow. Material mults scale this.
+       */
+      underwearCapacity: 80,
+      /** Default wet-point capacity (leg / hose region pool). */
+      legCapacity: 70,
+      /**
+       * When layer is over capacity, fraction of excess that continues outward.
+       * Kept modest — soak-through is a seep, not a dump.
+       */
+      throughFraction: 0.28,
+      /**
+       * Cap amount01 that may pass onward while a region still has absorb room
+       * (early concurrent seep / partial fill).
+       */
+      maxThroughPerApply01: 0.08,
+      /**
+       * When a region is at capacity it absorbs nothing — excess passes downstream
+       * up to this higher per-apply cap (surges can move without vanishing).
+       */
+      maxThroughWhenSaturated01: 0.35,
+      /**
+       * Once crotch wet score ≥ this (coin≈12), a share of each new deposit
+       * may seep through concurrently while the patch also expands laterally.
+       */
+      earlySeepFromScore: 12,
+      /** Minimum concurrent through-share at exactly coin (before material mult). */
+      earlySeepShareMin: 0.08,
+      /** Skin smear when flow remains after all layers (fraction of remainder). */
+      skinSmearFraction: 0.35,
+      /**
+       * Material / style soak resilience (capacity↑ absorbs more; through↑ passes faster).
+       * Lace/thin cloth saturate & bleed sooner; thick cloth / leather hold longer.
+       */
+      material: {
+        cloth: { capacityMult: 1, throughMult: 1 },
+        leather: { capacityMult: 1.25, throughMult: 0.55 },
+        wood: { capacityMult: 1, throughMult: 0.3 },
+        iron: { capacityMult: 1, throughMult: 0.15 },
+        lowGradeSteel: { capacityMult: 1, throughMult: 0.15 },
+        highGradeSteel: { capacityMult: 1, throughMult: 0.12 },
+        springSteel: { capacityMult: 1, throughMult: 0.12 },
+        mithril: { capacityMult: 1, throughMult: 0.2 },
+        adamantite: { capacityMult: 1, throughMult: 0.1 },
+        unequipped: { capacityMult: 1, throughMult: 1 },
+        body: { capacityMult: 1, throughMult: 1 },
+      },
+      /** Underwear style overlays on top of material (thin/lace vs modest/thick). */
+      underwearStyle: {
+        risquePanty: { capacityMult: 0.72, throughMult: 1.45 },
+        pegasusPanty: { capacityMult: 0.85, throughMult: 1.2 },
+        modestPanty: { capacityMult: 1.1, throughMult: 0.85 },
+        tribalCloth: { capacityMult: 0.9, throughMult: 1.15 },
+        longSlipSkirt: { capacityMult: 1.05, throughMult: 0.9 },
+        shortSlipSkirt: { capacityMult: 0.95, throughMult: 1.05 },
+        briefs: { capacityMult: 1.05, throughMult: 0.9 },
+        loincloth: { capacityMult: 0.8, throughMult: 1.25 },
+        shorts: { capacityMult: 1.15, throughMult: 0.8 },
+      },
+      /**
+       * Retained vaginal semen → cloth leak per hour (× cohort volume).
+       * Hasty dress without cleaning: semen reaches underwear then may overflow.
+       */
+      vaginalSemenLeakPerHour: 0.08,
+      /** Anal retained semen leak stub rate (plug / tropes later). */
+      analSemenLeakPerHour: 0.12,
     },
   },
 

@@ -1,4 +1,5 @@
 import type { Sex, Unit as DetailedUnit } from '../../types/characters';
+import { COMBAT_TUNING } from './combatTuning';
 import { roundToThousandths } from './penalties';
 
 /**
@@ -42,15 +43,17 @@ export function getBloodRemainingFraction(
  * Fractions are *remaining* blood, not lost.
  */
 export type BloodLossClass =
-  | 'none'
-  | 'mild'      // ~<15% lost
+  | 'none'      // 0 lost
+  | 'slight'    // any loss above 0 until mild (~<8%)
+  | 'mild'      // ~8–15% lost
   | 'moderate'  // ~15–30%
   | 'severe'    // ~30–40%
   | 'critical';  // ~>40%
 
 export function classifyBloodLoss(remainingFraction: number): BloodLossClass {
   const lost = 1 - remainingFraction;
-  if (lost < 0.08) return 'none';
+  if (lost <= 0) return 'none';
+  if (lost < 0.08) return 'slight';
   if (lost < 0.15) return 'mild';
   if (lost < 0.3) return 'moderate';
   if (lost < 0.4) return 'severe';
@@ -108,12 +111,24 @@ export function calcBloodCombatPenalties(
 ): BloodCombatPenalties {
   const lost = 1 - remainingFraction;
 
-  // Stamina: starts early, curves down hard — primary consequence
-  // remaining 1 → 1.0; 0.85 → ~0.92; 0.7 → ~0.72; 0.5 → ~0.45
-  const stamina = Math.max(
-    0.15,
-    Math.pow(Math.max(0, remainingFraction), 1.35)
-  );
+  /**
+   * Stamina effectiveness plummets with blood loss and hits **0** at collapse
+   * (~40% lost). tickBleed zeros staminaCurrent there (faint); death at ~50%.
+   */
+  const collapseLost = COMBAT_TUNING.bloodStamina.collapseLostFraction;
+  const collapseRemaining = 1 - collapseLost;
+  let stamina: number;
+  if (remainingFraction <= collapseRemaining) {
+    stamina = 0;
+  } else {
+    const t =
+      (remainingFraction - collapseRemaining) /
+      Math.max(1e-6, 1 - collapseRemaining);
+    stamina = Math.pow(
+      Math.max(0, Math.min(1, t)),
+      COMBAT_TUNING.bloodStamina.plummetExponent
+    );
+  }
 
   // Attack: mild until moderate loss
   const attack =
@@ -144,4 +159,53 @@ export function calcBloodCombatPenalties(
     dodge: roundToThousandths(dodge),
     vitality: roundToThousandths(vitality),
   };
+}
+
+/**
+ * Bleed flow multiplier from blood already lost (hypovolemia).
+ * No hard zero — arterial stays higher than non-arterial in the 40–50% band.
+ */
+export function hypovolemiaFlowMult(
+  lostFraction: number,
+  arterial: boolean
+): number {
+  const H = COMBAT_TUNING.hypovolemia;
+  const BS = COMBAT_TUNING.bloodStamina;
+  const lost = Math.max(0, lostFraction);
+  const collapse = BS.collapseLostFraction;
+  const death = BS.deathLostFraction;
+
+  let mult: number;
+  if (lost <= collapse) {
+    const u = collapse <= 0 ? 0 : lost / collapse;
+    mult = 1 - u * (1 - H.flowAtCollapse);
+  } else if (lost <= death) {
+    const span = Math.max(1e-6, death - collapse);
+    const u = (lost - collapse) / span;
+    const atDeath = arterial ? H.arterialFlowAtDeath : H.nonArterialFlowAtDeath;
+    mult = H.flowAtCollapse + (atDeath - H.flowAtCollapse) * u;
+  } else {
+    const atDeath = arterial ? H.arterialFlowAtDeath : H.nonArterialFlowAtDeath;
+    const over = lost - death;
+    mult = atDeath * Math.exp(-over * H.postDeathDecay);
+  }
+
+  return roundToThousandths(Math.max(H.flowFloor, Math.min(1, mult)));
+}
+
+/** Care-only external flow mult (bandage / pressure / vulnerary), before hypovolemia. */
+export function careExternalFlowMult(state: {
+  dressed?: boolean;
+  vulnerary?: boolean;
+  directPressure?: boolean;
+}): number {
+  let m = 1;
+  if (state.dressed) {
+    m *= COMBAT_TUNING.dressedExternalRateMult;
+    if (state.directPressure) m *= COMBAT_TUNING.pressureOverBandageRateMult;
+  } else if (state.directPressure) {
+    m *= COMBAT_TUNING.pressureExternalRateMult;
+  }
+  if (state.vulnerary) m *= COMBAT_TUNING.vulneraryExternalRateMult;
+  return m;
 }

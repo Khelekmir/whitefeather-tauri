@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   gradeOuterScale,
+  gradeOuterScaleWithNpcDefense,
   gradeTiming,
+  defenseRhythmGradeLabel,
   rhythmGradeLabel,
   scaleRhythmWindow,
+  type AttackTimingZone,
   type RhythmGrade,
   type RhythmMissKind,
   type RhythmWindow,
@@ -45,6 +48,8 @@ export interface AttackRhythmQteProps {
       scale: number;
       /** Set when defense L/R click mode is active. */
       verb?: DefenseVerb;
+      /** Player→NPC: zoned outcome including NPC dodge/parry band edges. */
+      zone?: AttackTimingZone;
     }
   ) => void;
   onCancel?: () => void;
@@ -69,10 +74,49 @@ export interface AttackRhythmQteProps {
     parryWindow: RhythmWindow;
   };
   /**
+   * Player shield-block QTE (after dodge/parry fail): Space / LMB / click.
+   * Grades against `rhythmWindow`; flash uses block labels.
+   */
+  blockMode?: boolean;
+  /**
+   * Player→NPC attack QTE: carve defender dodge/parry % into hit/crit band edges
+   * for grading + flash labels (NPC DODGE / NPC PARRY vs HIT / CRIT).
+   */
+  npcDefenseZones?: {
+    dodge: number;
+    parry: number;
+  };
+  /**
    * Character splash: silhouette + aim-region overlay; QTE squares centered
    * on the targeted zone (viewBox-aligned with AimTargetPanel).
    */
   splash?: RhythmSplashTarget;
+  /**
+   * Lab/testing: keep the outer square axis-aligned (no spin) so eclipse
+   * of outer→inner is easier to read.
+   */
+  freezeRotation?: boolean;
+}
+
+function attackZoneFlashLabel(zone: AttackTimingZone): string {
+  switch (zone) {
+    case 'dodge':
+      return 'NPC DODGE';
+    case 'parry':
+      return 'NPC PARRY';
+    case 'crit':
+      return 'CRIT';
+    case 'hit':
+      return 'HIT';
+    case 'miss':
+      return 'MISS';
+  }
+}
+
+function zoneToRhythmGrade(zone: AttackTimingZone): RhythmGrade {
+  if (zone === 'crit') return 'crit';
+  if (zone === 'hit') return 'hit';
+  return 'miss';
 }
 
 type Phase = 'running' | 'resolving';
@@ -106,7 +150,10 @@ export function AttackRhythmQte({
   hint = 'Space / Enter / click when squares overlap',
   resultHoldMs = 900,
   defenseInput,
+  blockMode = false,
+  npcDefenseZones,
   splash,
+  freezeRotation = false,
 }: AttackRhythmQteProps) {
   const initialWindow =
     defenseInput?.dodgeWindow ??
@@ -115,6 +162,12 @@ export function AttackRhythmQte({
   const windowRef = useRef<RhythmWindow>(initialWindow);
   const defenseRef = useRef(defenseInput);
   defenseRef.current = defenseInput;
+  const blockModeRef = useRef(blockMode);
+  blockModeRef.current = blockMode;
+  const freezeRotationRef = useRef(freezeRotation);
+  freezeRotationRef.current = freezeRotation;
+  const npcZonesRef = useRef(npcDefenseZones);
+  npcZonesRef.current = npcDefenseZones;
   const [phase, setPhase] = useState<Phase>('running');
   const [scale, setScale] = useState(windowRef.current.startScale);
   const [rotation, setRotation] = useState(0);
@@ -122,6 +175,7 @@ export function AttackRhythmQte({
     grade: RhythmGrade;
     missKind: RhythmMissKind;
     verb?: DefenseVerb;
+    zone?: AttackTimingZone;
   } | null>(null);
   const [parryDenied, setParryDenied] = useState(false);
 
@@ -148,16 +202,17 @@ export function AttackRhythmQte({
       grade: RhythmGrade,
       missKind: RhythmMissKind,
       atScale: number,
-      verb?: DefenseVerb
+      verb?: DefenseVerb,
+      zone?: AttackTimingZone
     ) => {
       if (finished.current) return;
       finished.current = true;
       if (raf.current != null) cancelAnimationFrame(raf.current);
       setPhase('resolving');
-      setFlash({ grade, missKind, verb });
+      setFlash({ grade, missKind, verb, zone });
       setScale(atScale);
       window.setTimeout(() => {
-        onResultRef.current(grade, { missKind, scale: atScale, verb });
+        onResultRef.current(grade, { missKind, scale: atScale, verb, zone });
       }, Math.max(200, holdMsRef.current));
     },
     []
@@ -182,10 +237,31 @@ export function AttackRhythmQte({
       const t = Math.min(1, (now - startMs.current) / w.durationMs);
       const nextScale = w.startScale + (w.endScale - w.startScale) * t;
       setScale(nextScale);
-      setRotation(w.rotationDegrees * t);
+      setRotation(
+        freezeRotationRef.current ? 0 : w.rotationDegrees * t
+      );
 
       if (t >= 1) {
-        finish('miss', 'late', nextScale);
+        const zones = npcZonesRef.current;
+        if (zones) {
+          const zoned = gradeOuterScaleWithNpcDefense(
+            nextScale,
+            w,
+            zones.dodge,
+            zones.parry
+          );
+          finish(
+            zoneToRhythmGrade(zoned.outcome),
+            zoned.missKind === 'none' ? 'late' : zoned.missKind,
+            nextScale,
+            undefined,
+            zoned.outcome === 'miss' ? 'miss' : zoned.outcome
+          );
+        } else if (blockModeRef.current) {
+          finish('miss', 'late', nextScale, 'block');
+        } else {
+          finish('miss', 'late', nextScale);
+        }
         return;
       }
       raf.current = requestAnimationFrame(tick);
@@ -232,6 +308,24 @@ export function AttackRhythmQte({
     }
     const w = windowRef.current;
     const t = Math.min(1, (performance.now() - startMs.current) / w.durationMs);
+    const scaleNow = w.startScale + (w.endScale - w.startScale) * t;
+    if (blockModeRef.current) {
+      const graded = gradeOuterScale(scaleNow, w);
+      finish(graded.grade, graded.missKind, scaleNow, 'block');
+      return;
+    }
+    const zones = npcZonesRef.current;
+    if (zones) {
+      const zoned = gradeOuterScaleWithNpcDefense(
+        scaleNow,
+        w,
+        zones.dodge,
+        zones.parry
+      );
+      const grade = zoneToRhythmGrade(zoned.outcome);
+      finish(grade, zoned.missKind, scaleNow, undefined, zoned.outcome);
+      return;
+    }
     const graded = gradeTiming(t, w);
     finish(graded.grade, graded.missKind, graded.scale);
   }, [finish, phase, pressDefense]);
@@ -267,6 +361,7 @@ export function AttackRhythmQte({
 
   const w = windowRef.current;
   const defenseMode = !!defenseInput;
+  const isBlockMode = !!blockMode;
 
   // Square size: fraction of splash stage height, or fixed px without splash.
   const splashMaxWidth = 400;
@@ -488,9 +583,13 @@ export function AttackRhythmQte({
         }}
       >
         {flash
-          ? `${flash.verb ? flash.verb.toUpperCase() + ' · ' : ''}${rhythmGradeLabel(flash.grade)}${
-              flash.missKind !== 'none' ? ` (${flash.missKind})` : ''
-            }`
+          ? `${
+              flash.verb
+                ? defenseRhythmGradeLabel(flash.verb, flash.grade)
+                : flash.zone
+                  ? attackZoneFlashLabel(flash.zone)
+                  : rhythmGradeLabel(flash.grade)
+            }${flash.missKind !== 'none' ? ` (${flash.missKind})` : ''}`
           : shownHint}
       </div>
 
@@ -503,7 +602,9 @@ export function AttackRhythmQte({
       <div style={{ fontSize: 11, opacity: 0.55, color: '#e5e7eb' }}>
         {defenseMode
           ? 'LMB / Space = dodge · RMB / P = parry · Esc cancel'
-          : `Esc to cancel · window ×${w.windowFactor.toFixed(2)} · competence ${w.competence.toFixed(2)}`}
+          : isBlockMode
+            ? 'LMB / Space / Enter = block · Esc cancel'
+            : `Esc to cancel · window ×${w.windowFactor.toFixed(2)} · competence ${w.competence.toFixed(2)}`}
       </div>
 
       {onCancel && phase === 'running' ? (

@@ -17,6 +17,10 @@ import type {
   StrikeStanceId,
 } from '../../types/characters';
 import { COMBAT_TUNING } from './combatTuning';
+import {
+  applySkillAimSpill,
+  type AimSpillSkillInput,
+} from './aimSpill';
 import { roundToThousandths } from './penalties';
 
 const T = COMBAT_TUNING.stance;
@@ -148,12 +152,11 @@ export function evaluateStanceMatchupFromSkills(
   });
 }
 
-/** Aim-zone hitRatio after defender cover remaps presented regions. */
-export function remapAimHitRatio(
-  aim: AttackTargetKey,
+/** Cover-remap an arbitrary hit-ratio map, then renormalize. */
+export function remapHitRatioMap(
+  base: Partial<Record<BodyPartId, number>>,
   cover: CoverStanceId
 ): Partial<Record<BodyPartId, number>> {
-  const base = ATTACK_TARGETS[aim]?.hitRatio ?? {};
   const weights = COVER_REGION_WEIGHTS[cover];
   const scaled: Partial<Record<BodyPartId, number>> = {};
   let sum = 0;
@@ -172,28 +175,61 @@ export function remapAimHitRatio(
   return normalized;
 }
 
-export function pickBodyPartWithStance(
+/**
+ * Aim-zone hitRatio:
+ * 1) optional override / base table
+ * 2) skill spill (weapon+SKL vs cover skill) — core vs arms/shoulders
+ * 3) cover region remap
+ */
+export function remapAimHitRatio(
   aim: AttackTargetKey,
-  cover: CoverStanceId
+  cover: CoverStanceId,
+  hitRatioOverride?: Partial<Record<BodyPartId, number>>,
+  spillSkills?: AimSpillSkillInput | null
+): Partial<Record<BodyPartId, number>> {
+  let base = hitRatioOverride ?? ATTACK_TARGETS[aim]?.hitRatio ?? {};
+  if (spillSkills) {
+    base = applySkillAimSpill(base, aim, spillSkills);
+  }
+  return remapHitRatioMap(base, cover);
+}
+
+export function pickFromHitRatio(
+  ratios: Partial<Record<BodyPartId, number>>,
+  rng: () => number = Math.random
 ): BodyPartId {
-  const ratios = remapAimHitRatio(aim, cover);
   const entries = Object.entries(ratios) as [BodyPartId, number][];
   if (entries.length === 0) return 'chestLeft';
-  const roll = Math.random();
+  const roll = rng();
   let cumulative = 0;
   for (const [zone, ratio] of entries) {
     cumulative += ratio;
     if (roll < cumulative) return zone;
   }
-  return entries[entries.length - 1][0];
+  return entries[entries.length - 1]![0];
+}
+
+export function pickBodyPartWithStance(
+  aim: AttackTargetKey,
+  cover: CoverStanceId,
+  hitRatioOverride?: Partial<Record<BodyPartId, number>>,
+  rng?: () => number,
+  spillSkills?: AimSpillSkillInput | null
+): BodyPartId {
+  return pickFromHitRatio(
+    remapAimHitRatio(aim, cover, hitRatioOverride, spillSkills),
+    rng
+  );
 }
 
 export function summarizeRemappedAim(
   aim: AttackTargetKey,
   cover: CoverStanceId,
-  topN = 4
+  topN = 4,
+  hitRatioOverride?: Partial<Record<BodyPartId, number>>,
+  spillSkills?: AimSpillSkillInput | null
 ): { part: BodyPartId; ratio: number }[] {
-  const ratios = remapAimHitRatio(aim, cover);
+  const ratios = remapAimHitRatio(aim, cover, hitRatioOverride, spillSkills);
   return (Object.entries(ratios) as [BodyPartId, number][])
     .sort((a, b) => b[1] - a[1])
     .slice(0, topN)

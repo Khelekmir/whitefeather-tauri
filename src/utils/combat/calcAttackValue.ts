@@ -1,10 +1,21 @@
 import { getMaterial } from '../../data/combat/materials';
 import { getWeaponTypeInfo } from '../../data/combat/weaponTypes';
-import type { BaseCombatStats, ItemizedHealth, WeaponSkill } from '../../types/characters';
+import type {
+  BaseCombatStats,
+  DominantHand,
+  ItemizedHealth,
+  WeaponSkill,
+} from '../../types/characters';
 import type { Item } from '../../types/items';
 import { calcItemWeight } from '../items/resolveItem';
 import { getItemTemplate } from '../../data/catalog/itemTemplates';
 import { COMBAT_TUNING } from './combatTuning';
+import {
+  calcLimbAttackMult,
+  isTwoHandGrip,
+  type AttackWeaponSlot,
+  type LimbAttackMultResult,
+} from './limbAttack';
 import {
   calcHealthPenaltySimple,
   calcStaminaPenalty,
@@ -19,7 +30,12 @@ export type BloodFractionOpts = {
   bloodAttackFactor?: number;
 };
 
-const PHYSICAL_CONSTANT = 1;
+export type LimbAttackOpts = {
+  dominantHand?: DominantHand;
+  attackSlot?: AttackWeaponSlot;
+  /** Offhand occupied by shield or weapon (blocks two-hand grip). */
+  offhandOccupied?: boolean;
+};
 
 export interface AttackValueResult {
   attackValue: number;
@@ -34,6 +50,9 @@ export interface AttackValueResult {
   weaponBroken: boolean;
   /** Attack mult from durability while intact (1 if punch / broken fallback). */
   durabilityAttackMult: number;
+  /** Weapon-arm integrity mult (1 if limb opts omitted). */
+  limbAttackMult: number;
+  limbAttack: LimbAttackMultResult | null;
 }
 
 /** durability / maxDurability for an item (0 if missing). */
@@ -77,7 +96,8 @@ export function calcMainhandAttackValue(
   mainhandIn: Item | null,
   offhandIsShield: boolean,
   offhandWeight: number,
-  blood?: BloodFractionOpts
+  blood?: BloodFractionOpts,
+  limb?: LimbAttackOpts
 ): AttackValueResult {
   const broken = isWeaponBroken(mainhandIn);
   // Broken blade → unequipped/punch for power (still equipped for inventory/UI).
@@ -103,10 +123,15 @@ export function calcMainhandAttackValue(
     ? weaponDurabilityAttackMult(ratio)
     : 1;
 
-  const noOffhand = !offhandIsShield && offhandWeight <= 0;
+  const offhandOccupied =
+    limb?.offhandOccupied ?? (offhandIsShield || offhandWeight > 0);
+  const noOffhand = !offhandOccupied;
+  const attackSlot = limb?.attackSlot ?? 'mainhand';
   const twoHandOptional = !!template?.flags?.twoHandOptional;
   let twoHandedMultiplier = 1;
-  if (noOffhand) {
+  // Empty-offhand power bonus only when swinging from mainhand (dominant).
+  // Offhand-slot attacks are awkward single-hand grips, not reinforced two-hand.
+  if (noOffhand && attackSlot === 'mainhand') {
     if (twoHandOptional) twoHandedMultiplier = 1.5;
     else if (!typeInfo.twoHanded) twoHandedMultiplier = 1.25;
   }
@@ -116,7 +141,9 @@ export function calcMainhandAttackValue(
   const logW = Math.max(0, Math.log10(weight));
 
   const attackBase =
-    (logStr * logW + logStr ** 2) * PHYSICAL_CONSTANT * twoHandedMultiplier;
+    (logStr * logW + logStr ** 2) *
+    COMBAT_TUNING.physicalConstant *
+    twoHandedMultiplier;
 
   const adjusted =
     weight > strength ? attackBase * (strength / weight) : attackBase;
@@ -132,9 +159,29 @@ export function calcMainhandAttackValue(
     (blood?.bloodStaminaFactor ?? 1);
   const bloodAttack = blood?.bloodAttackFactor ?? 1;
 
+  const twoHandGrip =
+    attackSlot === 'mainhand' && isTwoHandGrip(mainhand, offhandOccupied);
+  const limbAttack = calcLimbAttackMult({
+    itemized: itemizedHealth,
+    dominantHand: limb?.dominantHand ?? 'right',
+    attackSlot,
+    twoHandGrip,
+    weaponWeight: weight,
+    strength: base.strength,
+    constitution: base.constitution,
+  });
+  // If one-hand fallback engaged, drop the empty-offhand power bonus somewhat.
+  const gripAfterFallback =
+    limbAttack.mode === 'oneHandFallback'
+      ? Math.min(twoHandedMultiplier, 1.1)
+      : twoHandedMultiplier;
+  const gripAdjust =
+    twoHandedMultiplier > 0 ? gripAfterFallback / twoHandedMultiplier : 1;
+
   const trauma = calcTraumaPenalties(itemizedHealth);
   const attackValue =
     adjusted *
+    gripAdjust *
     weightPenalty *
     healthPenalty *
     staminaPenalty *
@@ -142,6 +189,7 @@ export function calcMainhandAttackValue(
     material.strength *
     typeInfo.powerMultiplier *
     durabilityAttackMult *
+    limbAttack.mult *
     trauma.attackMult *
     trauma.globalCombatMult;
 
@@ -155,5 +203,7 @@ export function calcMainhandAttackValue(
     weaponSkill: skillRank,
     weaponBroken: broken,
     durabilityAttackMult,
+    limbAttackMult: limbAttack.mult,
+    limbAttack,
   };
 }

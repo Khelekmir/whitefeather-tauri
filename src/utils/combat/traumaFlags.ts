@@ -3,8 +3,10 @@ import {
   type BodyPartHealth,
   type BodyPartId,
   type ItemizedHealth,
+  type VitalOrgans,
 } from '../../types/characters';
 import { COMBAT_TUNING } from './combatTuning';
+import { lungStaminaDrainMult } from './organPierce';
 import { roundToThousandths } from './penalties';
 
 export type TraumaLevel = 'none' | 'sprain' | 'fracture' | 'broken';
@@ -98,7 +100,8 @@ export interface TraumaPenalties {
 }
 
 export function calcTraumaPenalties(
-  itemized: ItemizedHealth
+  itemized: ItemizedHealth,
+  organs?: VitalOrgans | null
 ): TraumaPenalties {
   const lowerPoints = regionPoints(itemized, TRAUMA_LOWER_BODY);
   const armPoints = regionPoints(itemized, TRAUMA_ARMS);
@@ -126,13 +129,17 @@ export function calcTraumaPenalties(
     if (level !== 'none') flagged.push({ part, level });
   }
 
+  let staminaDrainMult = chestBroken ? chest.staminaDrainMult : 1;
+  // Pierced lungs: strong stamina penalty (breathing).
+  staminaDrainMult *= lungStaminaDrainMult(organs);
+
   return {
     mobilityMult,
     dodgeMult,
     attackMult,
     parryMult,
     blockMult,
-    staminaDrainMult: chestBroken ? chest.staminaDrainMult : 1,
+    staminaDrainMult: roundToThousandths(staminaDrainMult),
     globalCombatMult: chestBroken ? chest.globalCombatMult : 1,
     lowerPoints: roundToThousandths(lowerPoints),
     armPoints: roundToThousandths(armPoints),

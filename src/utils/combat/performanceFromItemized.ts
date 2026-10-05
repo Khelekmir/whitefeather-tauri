@@ -60,9 +60,10 @@ export interface PerformanceFactors {
 }
 
 export function calcPerformanceFromItemized(
-  itemizedHealth: ItemizedHealth
+  itemizedHealth: ItemizedHealth,
+  organs?: import('../../types/characters').VitalOrgans | null
 ): PerformanceFactors {
-  const trauma = calcTraumaPenalties(itemizedHealth);
+  const trauma = calcTraumaPenalties(itemizedHealth, organs);
   const mobility = roundToThousandths(
     weightedHealthFactor(itemizedHealth, MOBILITY_PARTS) * trauma.mobilityMult
   );

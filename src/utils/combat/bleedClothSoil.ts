@@ -2,6 +2,7 @@ import { BODY_PARTS, type BodyPartId, type Unit as DetailedUnit } from '../../ty
 import type { Item, ItemSlot } from '../../types/items';
 import { applyWetSoil, bagIntensity } from '../lewd/fluidSoil';
 import { getProtectingArmor } from '../items/resolveItem';
+import { getBloodStatus } from './bloodVolume';
 import { COMBAT_TUNING, isSoftMaterial } from './combatTuning';
 import { calcPartExternalBleedRate } from './deriveHealthPool';
 import { roundToThousandths } from './penalties';
@@ -41,6 +42,7 @@ export function applyBleedSoilToLoadout(
   if (dt <= 0) return { entries, soiledNames: [] };
 
   const itemized = unit.combatStats.itemizedHealth;
+  const lostFrac = getBloodStatus(unit).lostFraction;
   const scale = COMBAT_TUNING.bleedSoilPerRateMinute;
   const through = COMBAT_TUNING.bleedSoilBleedThrough;
   const softAbs = COMBAT_TUNING.bleedSoilSoftAbsorb;
@@ -50,7 +52,7 @@ export function applyBleedSoilToLoadout(
     const state = itemized[part];
     if (!state) continue;
     // Cloth soil only from external (open) bleeding — not internal.
-    const rate = calcPartExternalBleedRate(part, state);
+    const rate = calcPartExternalBleedRate(part, state, lostFrac);
     if (rate <= 0) continue;
 
     let flow = rate * dt * scale;

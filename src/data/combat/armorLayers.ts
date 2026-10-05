@@ -15,11 +15,11 @@ export const ARMOR_LAYERS: Record<BodyPartId, ItemSlot[]> = {
   earLeft: ['head'],
   earRight: ['head'],
   neck: ['shoulder', 'head'],
-  // shirt/undershirt apply when sleeveStyle (or explicit coverage) sets arm keys
-  shoulderLeft: ['shoulder', 'shirt', 'undershirt'],
-  shoulderRight: ['shoulder', 'shirt', 'undershirt'],
-  upperArmLeft: ['shoulder', 'shirt', 'undershirt'],
-  upperArmRight: ['shoulder', 'shirt', 'undershirt'],
+  // chest (hauberk / jack) may cover shoulders when template coverage says so
+  shoulderLeft: ['shoulder', 'chest', 'shirt', 'undershirt'],
+  shoulderRight: ['shoulder', 'chest', 'shirt', 'undershirt'],
+  upperArmLeft: ['shoulder', 'chest', 'shirt', 'undershirt'],
+  upperArmRight: ['shoulder', 'chest', 'shirt', 'undershirt'],
   lowerArmLeft: ['wrist', 'hand', 'shirt'],
   lowerArmRight: ['wrist', 'hand', 'shirt'],
   handLeft: ['hand'],
