@@ -49,12 +49,42 @@ export function bondFromEdge(edge: DirectedRelationship | null): BondSnapshot {
 }
 
 /**
+ * 0–1 how much the body still answers physical contact when the mind objects.
+ * Cold → 0; already heated → near 1.
+ */
+export function bodyCommit01(encounterArousal: number): number {
+  const B = T.bond.bodyCommit;
+  const a = Math.max(0, encounterArousal);
+  if (a <= B.arousalFloor) return 0;
+  if (a >= B.arousalFull) return 1;
+  const t =
+    (a - B.arousalFloor) / Math.max(0.01, B.arousalFull - B.arousalFloor);
+  return t * t * (3 - 2 * t);
+}
+
+/**
+ * Encounter-local intimacy budget credit from climaxCount ("melting resolve").
+ * Stacks with soft cap; does not write long-term Desire.
+ */
+export function resolveMeltBudgetCredit(climaxCount: number): number {
+  if (!(climaxCount > 0)) return 0;
+  const M = T.bond.resolveMelt;
+  return Math.min(
+    M.creditCap,
+    M.creditFirstClimax +
+      Math.max(0, climaxCount - 1) * M.creditPerExtraClimax
+  );
+}
+
+/**
  * How much relational "room" the recipient has for this partner's intimacy.
- * High trust/affection/desire (+ ST warmth/heat) expands; hurt/suspicion contracts.
+ * Desire is the main deep unlock; trust/affection support; hurt/suspicion contract.
+ * Optional climaxCount adds temporary resolve-melt credit.
  */
 export function intimacyBudgetFromBond(
   bond: BondSnapshot,
-  orientationResistance = 0
+  orientationResistance = 0,
+  climaxCount = 0
 ): number {
   const B = T.bond;
   const resist = Math.max(0, Math.min(1, orientationResistance));
@@ -70,16 +100,48 @@ export function intimacyBudgetFromBond(
     (bond.suspicion / 100) * B.suspicionPenalty -
     (bond.guilt / 100) * B.guiltPenalty +
     B.budgetSlack -
-    resist * B.orientationResistanceBudgetTax
+    resist * B.orientationResistanceBudgetTax +
+    resolveMeltBudgetCredit(climaxCount)
   );
+}
+
+/**
+ * F→F skinship: hand/shoulder/neck/lips-tier acts see almost no orientation tax.
+ * Breast+ and genital keep full resistance until whitefeather / native attraction.
+ */
+export function isSkinshipIntimacyTier(
+  actionIntimacy: number,
+  targetIntimacy: number
+): boolean {
+  const B = T.bond;
+  return (
+    actionIntimacy <= B.skinshipActionIntimacyMax &&
+    targetIntimacy <= B.skinshipTargetIntimacyMax
+  );
+}
+
+/** Scale orientation resistance for the current act (skinship discount). */
+export function effectiveOrientationResistance(
+  orientationResistance: number,
+  actionIntimacy: number,
+  targetIntimacy: number
+): number {
+  const resist = Math.max(0, Math.min(1, orientationResistance));
+  if (!isSkinshipIntimacyTier(actionIntimacy, targetIntimacy)) return resist;
+  return resist * T.bond.skinshipOrientationResistMult;
 }
 
 export function intimacyAllowedForAct(
   bond: BondSnapshot,
   intimacyRequired: number,
-  orientationResistance = 0
+  orientationResistance = 0,
+  climaxCount = 0
 ): boolean {
-  const budget = intimacyBudgetFromBond(bond, orientationResistance);
+  const budget = intimacyBudgetFromBond(
+    bond,
+    orientationResistance,
+    climaxCount
+  );
   return budget >= intimacyRequired * T.bond.requirementScale;
 }
 

@@ -12,7 +12,11 @@ import type {
   LongTermRelationshipId,
   ShortTermRelationshipId,
 } from './data/social/relationships';
-import { intimacyBudgetFromBond, bondFromEdge } from './utils/lewd/intimacyBond';
+import {
+  intimacyBudgetFromBond,
+  bondFromEdge,
+  resolveMeltBudgetCredit,
+} from './utils/lewd/intimacyBond';
 import {
   ensureBidirectional,
   getEdge,
@@ -30,6 +34,7 @@ import { requiredArousalForAct } from './utils/lewd/arousalGate';
 import {
   createEncounterArousalState,
   idleEncounterArousal,
+  psychDiscomfortBand,
   type EncounterArousalState,
   type EncounterPosture,
 } from './utils/lewd/encounterArousal';
@@ -61,6 +66,7 @@ import {
 } from './utils/lewd/conception';
 import {
   advanceFluidSoil,
+  advanceFluidSoilDetailed,
   deriveSoilCues,
   launderCrotchLayers,
   launderUnderwear,
@@ -73,6 +79,7 @@ import {
   formatCycleLabel,
   hormonesForUnit,
   isInFertileWindow,
+  withHormoneSwing,
   wrapCycleHour,
 } from './utils/lewd/ovulationCycle';
 import { resolveLewdChannels } from './utils/lewd/resolveLewdMove';
@@ -352,7 +359,15 @@ function LewdLab() {
     proactive && recipient
       ? sexualDesireSoftCap(recipient, proactive, recipientToProactive)
       : 0;
-  const bondBudget = intimacyBudgetFromBond(bond, recipientOrientResist);
+  const meltCredit = resolveMeltBudgetCredit(encounter.climaxCount);
+  const bondBudget = intimacyBudgetFromBond(
+    bond,
+    recipientOrientResist,
+    encounter.climaxCount
+  );
+  const mindBand = psychDiscomfortBand(
+    encounter.discomfortPsych ?? encounter.discomfort ?? 0
+  );
 
   const pushLog = (line: string) => {
     const stamped = `[${new Date().toLocaleTimeString()}] ${line}`;
@@ -376,7 +391,26 @@ function LewdLab() {
       return;
     }
     syncRecipientGear();
-    pushLog(`Unequipped ${r.item.name} (${slot}).`);
+    const cues =
+      slot === 'leg' || slot === 'underwear'
+        ? deriveSoilCues(recipient)
+        : null;
+    const smearBit =
+      cues && cues.skinRegions.some((s) => s.feel === 'tacky')
+        ? ` · ${cues.skinRegions
+            .filter((s) => s.feel === 'tacky')
+            .map((s) => {
+              const where =
+                s.region === 'thighInner'
+                  ? 'inner thigh'
+                  : s.region === 'calf'
+                    ? 'calf'
+                    : 'crotch';
+              return `${where} ${s.label}`;
+            })
+            .join(' · ')}`
+        : '';
+    pushLog(`Unequipped ${r.item.name} (${slot}).${smearBit}`);
   };
 
   const onEquipOwned = (itemId: string) => {
@@ -402,8 +436,23 @@ function LewdLab() {
       pushLog(`Peel ${label}: nothing worn in those slots.`);
       return;
     }
+    const cues = deriveSoilCues(recipient);
+    const smearBit = cues.skinRegions.some((s) => s.feel === 'tacky')
+      ? ` · skin ${cues.skinRegions
+          .filter((s) => s.feel === 'tacky')
+          .map((s) => {
+            const where =
+              s.region === 'thighInner'
+                ? 'inner thigh'
+                : s.region === 'calf'
+                  ? 'calf'
+                  : 'crotch';
+            return `${where} ${s.label}`;
+          })
+          .join(' · ')}`
+      : '';
     pushLog(
-      `Peeled ${label}: ${unequipped.map((i) => i.name).join(', ')}.`
+      `Peeled ${label}: ${unequipped.map((i) => i.name).join(', ')}.${smearBit}`
     );
   };
 
@@ -424,24 +473,26 @@ function LewdLab() {
           suspicion: 15,
         },
         warm: {
-          trust: 70,
-          affection: 72,
-          desire: 35,
-          familiarity: 55,
-          respect: 65,
-          warmth: 40,
-          desireHeat: 20,
+          /** Affectionate / dating — kiss & breast OK; groin still budget-gated. */
+          trust: 68,
+          affection: 70,
+          desire: 28,
+          familiarity: 50,
+          respect: 62,
+          warmth: 35,
+          desireHeat: 12,
           hurt: 0,
           suspicion: 0,
         },
         lovers: {
+          /** Deep relational intimacy — Desire unlocks genital budget. */
           trust: 88,
           affection: 90,
-          desire: 75,
+          desire: 78,
           familiarity: 80,
           respect: 78,
           warmth: 55,
-          desireHeat: 45,
+          desireHeat: 48,
           hurt: 0,
           suspicion: 0,
         },
@@ -559,6 +610,7 @@ function LewdLab() {
     let localEncounter = encounter;
     let localProEncounter = proactiveEncounter;
     let localRecipient = recipient;
+    let localProactive = proactive;
     let localItems = itemsById;
     let steps = 0;
     const maxSteps = 120;
@@ -582,7 +634,7 @@ function LewdLab() {
           }
 
           const result = resolveLewdChannels({
-            proactive,
+            proactive: localProactive,
             recipient: localRecipient,
             channels: active,
             holdSeconds: 1,
@@ -594,6 +646,9 @@ function LewdLab() {
           localEncounter = result.encounter;
           localProEncounter = result.proactiveEncounter;
           localRecipient = result.recipientAfterSoil;
+          if (result.proactiveAfterSoil) {
+            localProactive = result.proactiveAfterSoil;
+          }
           steps += 1;
           setItemsById({ ...localItems });
 
@@ -616,12 +671,17 @@ function LewdLab() {
           setEncounter(localEncounter);
           setProactiveEncounter(localProEncounter);
           setRecipient(localRecipient);
+          setProactive(localProactive);
           setStepPauseNote(
             `Playing t+${steps}s… ${active.map((c) => channelLabel(c)).join(' + ')}`
           );
           pushLog(
             `t+${steps}s: ${result.band.toUpperCase()} · A ${result.encounter.arousal.toFixed(0)} E ${result.encounter.edge.toFixed(0)}${
               result.lubricationNote ? ` · ${result.lubricationNote}` : ''
+            }${
+              result.partnerDrip01 && result.partnerDrip01 > 0.002
+                ? ` · partner drip ${(result.partnerDrip01 * 100).toFixed(0)}%`
+                : ''
             } · rem ${localChannels
               .map((c) => `${c.actionId}:${c.remainingSeconds ?? 0}`)
               .join(' ')}`
@@ -686,6 +746,7 @@ function LewdLab() {
     let localEncounter = encounter;
     let localProEncounter = proactiveEncounter;
     let localRecipient = recipient;
+    let localProactive = proactive;
     let localItems = itemsById;
     let steps = 0;
     const maxSteps = 180;
@@ -715,7 +776,7 @@ function LewdLab() {
           }
 
           const result = resolveLewdChannels({
-            proactive,
+            proactive: localProactive,
             recipient: localRecipient,
             channels: active,
             holdSeconds: 1,
@@ -727,6 +788,9 @@ function LewdLab() {
           localEncounter = result.encounter;
           localProEncounter = result.proactiveEncounter;
           localRecipient = result.recipientAfterSoil;
+          if (result.proactiveAfterSoil) {
+            localProactive = result.proactiveAfterSoil;
+          }
           steps += 1;
           setItemsById({ ...localItems });
 
@@ -740,6 +804,7 @@ function LewdLab() {
           setEncounter(localEncounter);
           setProactiveEncounter(localProEncounter);
           setRecipient(localRecipient);
+          setProactive(localProactive);
           setStepPauseNote(
             `Preload t+${steps}s · ${phase.label} (${phaseIndex + 1}/${expanded.phases.length}) · A ${result.encounter.arousal.toFixed(0)} E ${result.encounter.edge.toFixed(0)}`
           );
@@ -802,14 +867,16 @@ function LewdLab() {
       const hours = seconds / 3600;
       // Scale lab seconds into a readable drip (idle 15s ≈ a few in-world minutes).
       const dripHours = Math.max(hours, seconds / 60);
-      const dripped = advanceFluidSoil(recipient, dripHours, {
+      const posture = nextRecv.posture ?? encounter.posture ?? 'standing';
+      const soil = advanceFluidSoilDetailed(recipient, dripHours, {
         encounterArousal: nextRecv.arousal,
-        posture: nextRecv.posture ?? encounter.posture ?? 'standing',
+        posture,
+        partner: posture === 'mounted' ? proactive ?? undefined : undefined,
       });
+      const dripped = soil.unit;
       setRecipient(dripped);
-      const cues = deriveSoilCues(dripped, {
-        posture: nextRecv.posture ?? encounter.posture ?? 'standing',
-      });
+      if (soil.partner) setProactive(soil.partner);
+      const cues = deriveSoilCues(dripped, { posture });
       const h = hormonesForUnit(dripped);
       const body = h
         ? bodilyStateFromHormones(
@@ -820,14 +887,19 @@ function LewdLab() {
       const wet = body
         ? feltWetness(body.wetness01, {
             lust: dripped.lewdStats.dynamic.lust ?? 0,
-            encounterArousal: nextRecv.arousal,
+            orificeWet01: cues.vaginaSlick?.wet01 ?? 0,
+            lubricationRate01: body.lubricationRate01,
           })
         : null;
       const wetBit = wet
-        ? ` · felt ${(wet.feltWetness * 100).toFixed(0)}% (ready ${(wet.readiness01 * 100).toFixed(0)}%${wet.oversaturated ? ' · oversat' : ''} · cycle ${(wet.cycleWetness * 100).toFixed(0)}% +arousal ${(wet.arousalBoost * 100).toFixed(0)}%)`
+        ? ` · felt ${(wet.feltWetness * 100).toFixed(0)}% (ready ${(wet.readiness01 * 100).toFixed(0)}%${wet.oversaturated ? ' · oversat' : ''} · floor ${(wet.cycleWetness * 100).toFixed(0)}% · orifice ${(wet.orificeWet01 * 100).toFixed(0)}% · rate ×${wet.lubricationRate01.toFixed(2)})`
         : '';
+      const partnerBit =
+        soil.partnerDrip01 > 0.002
+          ? ` · partner drip ${(soil.partnerDrip01 * 100).toFixed(0)}%`
+          : '';
       pushLog(
-        `Idle ${seconds}s — recv A ${encounter.arousal.toFixed(0)}→${nextRecv.arousal.toFixed(0)} E ${encounter.edge.toFixed(0)}→${nextRecv.edge.toFixed(0)} · pro A ${proactiveEncounter.arousal.toFixed(0)}→${nextPro.arousal.toFixed(0)} E ${proactiveEncounter.edge.toFixed(0)}→${nextPro.edge.toFixed(0)}${wetBit} · soil ${cues.summary}`
+        `Idle ${seconds}s — recv A ${encounter.arousal.toFixed(0)}→${nextRecv.arousal.toFixed(0)} E ${encounter.edge.toFixed(0)}→${nextRecv.edge.toFixed(0)} · pro A ${proactiveEncounter.arousal.toFixed(0)}→${nextPro.arousal.toFixed(0)} E ${proactiveEncounter.edge.toFixed(0)}→${nextPro.edge.toFixed(0)}${wetBit}${partnerBit} · soil ${cues.summary}`
       );
     } else {
       pushLog(
@@ -837,9 +909,14 @@ function LewdLab() {
   };
 
   const onResetArousal = () => {
-    setEncounter(createEncounterArousalState());
-    setProactiveEncounter(createEncounterArousalState());
-    pushLog('Encounter meters reset (recipient + proactive).');
+    const posture = encounter.posture ?? 'standing';
+    const proPosture = proactiveEncounter.posture ?? posture;
+    setEncounter({ ...createEncounterArousalState(), posture });
+    setProactiveEncounter({
+      ...createEncounterArousalState(),
+      posture: proPosture,
+    });
+    pushLog(`Encounter meters reset (recipient + proactive) · posture ${posture}.`);
   };
 
   const performButton = (opts?: { compact?: boolean }) =>
@@ -965,6 +1042,7 @@ function LewdLab() {
             {recipient?.name}→{proactive?.name}: trust {bond.trust} · affection {bond.affection} ·
             desire {bond.desire} · warmth {bond.warmth} · heat {bond.desireHeat} · budget{' '}
             <strong>{bondBudget.toFixed(0)}</strong>
+            {meltCredit > 0 ? ` · melt +${meltCredit.toFixed(0)}` : ''}
             {recipientOrientResist > 0.05
               ? ` · resist ${recipientOrientResist.toFixed(2)}`
               : ''}
@@ -1053,7 +1131,12 @@ function LewdLab() {
               <div style={{ fontSize: 11, opacity: 0.65 }}>
                 Climaxes {encounter.climaxCount} · recv ×{encounter.receptivity.toFixed(2)}
                 {' · '}
-                soft-block mind ≥{LEWD_TUNING.encounter.discomfortPsychSoftCap}
+                mind {mindBand}
+                {' · '}
+                tip-block ≥{LEWD_TUNING.encounter.psychContinuum.overwhelm}
+                {(encounter.orgasmSecondsRemaining ?? 0) > 0.05
+                  ? ` · hypersens ${encounter.orgasmSecondsRemaining!.toFixed(0)}s`
+                  : ''}
                 {recipient?.sex === 'M' &&
                 (encounter.refractorySecondsRemaining ?? 0) > 0
                   ? ` · refractory ${encounter.refractorySecondsRemaining.toFixed(0)}s`
@@ -1132,9 +1215,13 @@ function LewdLab() {
                 const lustT = cycleLustTarget(recipient.lewdStats.static.libido, h);
                 const body = bodilyStateFromHormones(h, len);
                 const lustNow = recipient.lewdStats.dynamic.lust ?? 0;
+                const soilCues = deriveSoilCues(recipient, {
+                  posture: encounter.posture ?? 'standing',
+                });
                 const wet = feltWetness(body.wetness01, {
                   lust: lustNow,
-                  encounterArousal: encounter.arousal,
+                  orificeWet01: soilCues.vaginaSlick?.wet01 ?? 0,
+                  lubricationRate01: body.lubricationRate01,
                 });
                 const wetCapPct = LEWD_TUNING.cycle.wetnessCap * 100;
                 return (
@@ -1145,24 +1232,33 @@ function LewdLab() {
                       {(body.fertileCrest01 * 100).toFixed(0)}% · lust→{lustT.toFixed(0)}
                     </p>
                     <p style={{ margin: '0 0 8px', fontSize: 11, opacity: 0.7, lineHeight: 1.4 }}>
-                      Mucus <strong>{body.mucusKind}</strong> · cycle{' '}
-                      {(wet.cycleWetness * 100).toFixed(0)}% · felt{' '}
+                      Mucus <strong>{body.mucusKind}</strong> · floor{' '}
+                      {(wet.cycleWetness * 100).toFixed(0)}% · orifice{' '}
+                      {(wet.orificeWet01 * 100).toFixed(0)}% · felt{' '}
                       {(wet.feltWetness * 100).toFixed(0)}% · ready{' '}
                       {(wet.readiness01 * 100).toFixed(0)}%
-                      {wet.oversaturated ? ' · oversat' : ''} · genital sens ×
+                      {wet.oversaturated ? ' · oversat' : ''} · rate ×
+                      {body.lubricationRate01.toFixed(2)} · genital sens ×
                       {body.genitalSensMult.toFixed(2)}
                       <br />
                       <span style={{ opacity: 0.85 }}>{body.blurb}</span>
                       <br />
                       <span style={{ opacity: 0.75 }}>
-                        100% ready = comfortable penetration lube (size/intensity gating later)
+                        100% ready = comfortable penetration lube (size/intensity gating later).
+                        Arousal gates secretion into the orifice; felt is floor + accumulation.
                       </span>
                     </p>
                     <Meter
-                      label="Cycle ambient"
+                      label="Cycle ambient floor"
                       value={wet.cycleWetness * 100}
                       max={100}
                       color="#67e8f9"
+                    />
+                    <Meter
+                      label="Vagina orifice slick"
+                      value={wet.orificeWet01 * 100}
+                      max={135}
+                      color="#c4b5fd"
                     />
                     <Meter
                       label={`Felt wetness (ready@100 · cap ${wetCapPct.toFixed(0)})`}
@@ -1182,11 +1278,11 @@ function LewdLab() {
                       {describeFeltWetnessFlavor(wet.feltWetness)}
                     </p>
                     <p style={{ margin: '0 0 8px', fontSize: 11, opacity: 0.6, lineHeight: 1.4 }}>
-                      Arousal boost +{(wet.arousalBoost * 100).toFixed(0)}%
+                      Floor nudges +{(wet.arousalBoost * 100).toFixed(0)}%
                       {' · '}lust {lustNow.toFixed(0)} → +
                       {(wet.lustBoost * 100).toFixed(0)}%
-                      {' · '}enc A {encounter.arousal.toFixed(0)} → +
-                      {(wet.encounterBoost * 100).toFixed(0)}%
+                      {' · '}orifice → +{(wet.secretedFelt * 100).toFixed(0)}%
+                      {' · '}enc A {encounter.arousal.toFixed(0)} gates secretion
                       {wet.desireMoodBoost > 0.001
                         ? ` · mood +${(wet.desireMoodBoost * 100).toFixed(0)}%`
                         : ''}
@@ -1222,6 +1318,15 @@ function LewdLab() {
                         <option value="standing">Standing — thigh run possible</option>
                         <option value="seated">Seated — pool on seat</option>
                         <option value="lying">Lying — pool on seat</option>
+                        <option value="handsKnees">
+                          Hands &amp; knees — runoff toward knees
+                        </option>
+                        <option value="sideLying">
+                          Side-lying — seat + lower thigh
+                        </option>
+                        <option value="mounted">
+                          Mounted / cowgirl — partner crotch drip
+                        </option>
                       </select>
                     </label>
                     {(() => {
@@ -1258,8 +1363,131 @@ function LewdLab() {
                             <div style={{ marginTop: 4, opacity: 0.85, lineHeight: 1.4 }}>
                               Outer ·{' '}
                               {cues.legRegions
-                                .map((r) => `${r.region} ${r.size}`)
+                                .map((r) => {
+                                  const where =
+                                    r.region === 'seat'
+                                      ? 'seat'
+                                      : r.region === 'innerThigh'
+                                        ? 'inner thigh'
+                                        : 'crotch';
+                                  const rate =
+                                    r.region === 'crotch'
+                                      ? ''
+                                      : ` · ${r.rateLabel}`;
+                                  return `${where} ${r.label}${rate}`;
+                                })
                                 .join(' · ')}
+                            </div>
+                          ) : null}
+                          {cues.skinRegions.length > 0 ? (
+                            <div
+                              style={{
+                                marginTop: 4,
+                                opacity: 0.9,
+                                lineHeight: 1.4,
+                                color: '#fda4af',
+                              }}
+                            >
+                              Skin ·{' '}
+                              {cues.skinRegions
+                                .filter(
+                                  (r) =>
+                                    r.feel === 'tacky' ||
+                                    r.region === 'crotch' ||
+                                    !!r.rangeLabel ||
+                                    r.region === 'seat'
+                                )
+                                .map((r) => {
+                                  const where =
+                                    r.region === 'thighInner'
+                                      ? 'inner thigh'
+                                      : r.region === 'calf'
+                                        ? 'calf'
+                                        : r.region === 'seat'
+                                          ? 'seat'
+                                          : 'crotch';
+                                  if (r.feel === 'tacky') {
+                                    return `${where} smear ${r.label}`;
+                                  }
+                                  if (r.rangeLabel) {
+                                    return `${r.label} ${r.rangeLabel}`;
+                                  }
+                                  return `${where} ${r.label}`;
+                                })
+                                .join(' · ')}
+                            </div>
+                          ) : null}
+                          {cues.analVergeWet || cues.analVergeLabel ? (
+                            <div
+                              style={{
+                                marginTop: 4,
+                                opacity: 0.9,
+                                lineHeight: 1.4,
+                                color: '#c4b5fd',
+                              }}
+                            >
+                              Anal verge ·{' '}
+                              {cues.analVergeWet
+                                ? `${(cues.analVergeWet01 * 100).toFixed(0)}%`
+                                : 'trace'}
+                              {cues.analVergeLabel
+                                ? ` · ${cues.analVergeLabel}`
+                                : ''}
+                            </div>
+                          ) : null}
+                          {cues.vaginaSlick ? (
+                            <div
+                              style={{
+                                marginTop: 4,
+                                opacity: 0.9,
+                                lineHeight: 1.4,
+                                color: '#e9d5ff',
+                              }}
+                            >
+                              Vagina slick · {cues.vaginaSlick.label}
+                              {cues.vaginaSlick.layers.length > 1
+                                ? ` · layers ${cues.vaginaSlick.layers
+                                    .map(
+                                      (l) =>
+                                        `${l.kind} ${(l.amount01 * 100).toFixed(0)}%`
+                                    )
+                                    .join(', ')}`
+                                : ''}
+                            </div>
+                          ) : null}
+                          {cues.anusSlick ? (
+                            <div
+                              style={{
+                                marginTop: 4,
+                                opacity: 0.9,
+                                lineHeight: 1.4,
+                                color: '#a5b4fc',
+                              }}
+                            >
+                              Anus slick · {cues.anusSlick.label}
+                              {cues.anusSlick.layers.length > 1
+                                ? ` · layers ${cues.anusSlick.layers
+                                    .map(
+                                      (l) =>
+                                        `${l.kind} ${(l.amount01 * 100).toFixed(0)}%`
+                                    )
+                                    .join(', ')}`
+                                : ''}
+                            </div>
+                          ) : null}
+                          {cues.narratives.length > 0 ? (
+                            <div
+                              style={{
+                                marginTop: 4,
+                                opacity: 0.8,
+                                lineHeight: 1.45,
+                                color: '#fbcfe8',
+                                fontStyle: 'italic',
+                              }}
+                            >
+                              {cues.narratives.map((n, i) => (
+                                <div key={`${i}-${n.slice(0, 24)}`}>{n}</div>
+                              ))}
                             </div>
                           ) : null}
                           <div style={{ marginTop: 6, fontSize: 11, color: '#c4b5fd' }}>
@@ -1280,7 +1508,10 @@ function LewdLab() {
                           const prevHour =
                             recipient.lewdStats.dynamic.ovulationCycleCurrent ?? 0;
                           const wrapped = wrapCycleHour(hour, len);
-                          const nextH = calcHormones(wrapped, len);
+                          const nextH = withHormoneSwing(
+                            calcHormones(wrapped, len),
+                            recipient.lewdStats.static.hormoneSwing
+                          );
                           let nextUnit = {
                             ...recipient,
                             lewdStats: {

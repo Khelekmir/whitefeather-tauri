@@ -9,6 +9,7 @@ import {
 import {
   evaluateArousalReadiness,
   requiredArousalForAct,
+  testosteroneRequiredMult,
   type ArousalReadiness,
 } from './arousalGate';
 import { calcStimulation, type StimulationResult } from './calcStimulation';
@@ -25,9 +26,12 @@ import {
   cyclePhysioMult,
   isCycleSensitiveTarget,
 } from './cycleBodilyState';
+import { isPostOrgasmHypersensTarget } from './encounterArousal';
 import { hormonesForUnit } from './ovulationCycle';
 import {
+  bodyCommit01,
   bondFromEdge,
+  effectiveOrientationResistance,
   intimacyAllowedForAct,
   psychBondMultiplier,
   socialMultFromBond,
@@ -191,6 +195,11 @@ export interface ChannelMergeResult {
   pain: number;
   /** Intensity of the channel contributing `pain`. */
   painIntensity: number;
+  /**
+   * Max intensity on post-orgasm hypersensitive targets this beat
+   * (clitoris / glans / …). Fed into encounter overstim while orgasm window is open.
+   */
+  hypersensStimIntensity: number;
   clothingBlocked: boolean;
 }
 
@@ -267,15 +276,26 @@ function resolveOneChannel(
 
   const clothingAccess: ClothingAccessMode = channel.clothingAccess ?? 'over';
   const accessTier: LewdAccessTier = action.access ?? 'clothOk';
-  const clothingBarrier =
-    accessTier === 'any'
-      ? null
-      : clothingBarrierForLewdTarget(
-          recipient,
-          itemsById,
-          channel.targetPart,
-          clothingAccess
-        );
+  // If nothing covers this target, ignore access mode (no displace / no cloth attenuate).
+  // Kiss-on-lips and other uncovered targets stay unaffected by the Lab dropdown.
+  const clothingBarrier = (() => {
+    if (accessTier === 'any') return null;
+    const preview = clothingBarrierForLewdTarget(
+      recipient,
+      itemsById,
+      channel.targetPart,
+      'over',
+      { applyDisplace: false }
+    );
+    if (preview.layers.length === 0) return preview;
+    if (clothingAccess === 'over') return preview;
+    return clothingBarrierForLewdTarget(
+      recipient,
+      itemsById,
+      channel.targetPart,
+      clothingAccess
+    );
+  })();
 
   let clothingBlocked = false;
   if (clothingBarrier) {
@@ -347,22 +367,37 @@ function resolveOneChannel(
     0.2,
     ((recipient.lewdStats.dynamic.lust || 40) / 50) * crestInterest
   );
+  const genitalOrAnalTarget =
+    isCycleSensitiveTarget(channel.targetPart) ||
+    /^(anus|rectum)/i.test(channel.targetPart);
   const intimacyRequired =
     (action.intimacy * 4.8 +
       ((actorBit?.intimacy ?? 3) + targetBit.intimacy) * 0.9 +
-      3.8 * Math.log1p(channel.intensity)) *
+      3.8 * Math.log1p(channel.intensity) +
+      (genitalOrAnalTarget ? T.bond.genitalBudgetSurcharge : 0)) *
     intimacyClothMult;
+  // F→F skinship: low–mid affection loci shrug off most orientation resistance.
+  const orientForGate = effectiveOrientationResistance(
+    ctx.orientationResistance,
+    action.intimacy,
+    targetBit.intimacy
+  );
   const intimacyAllowed = intimacyAllowedForAct(
     ctx.bond,
     intimacyRequired,
-    ctx.orientationResistance
+    orientForGate,
+    gateOpts.climaxCount
   );
 
-  const arousalRequired = requiredArousalForAct(
+  let arousalRequired = requiredArousalForAct(
     action.intimacy,
     targetBit.intimacy,
     targetBit.sensitivity
   );
+  // ♀ testosterone slightly eases act gates (T lane; E handles arousal gain).
+  if (recipient.sex === 'F' && hormones) {
+    arousalRequired *= testosteroneRequiredMult(hormones.testosterone);
+  }
   const arousalReadiness = evaluateArousalReadiness(
     currentArousal,
     arousalRequired,
@@ -393,7 +428,7 @@ function resolveOneChannel(
   const bondPsych = psychBondMultiplier(
     ctx.bond,
     action.intimacy,
-    ctx.orientationResistance
+    orientForGate
   );
   // Fertile crest sweetens light skinship (kiss/caress) more than deep acts.
   const skinshipCrest =
@@ -405,11 +440,17 @@ function resolveOneChannel(
 
   let psychQuality = 0;
   let physioQuality = 0;
-  const receptiveEnough =
-    intimacyAllowed &&
-    arousalReadiness !== 'hardUnready' &&
-    !clothingBlocked;
-  if (receptiveEnough) {
+  // Mind gate (intimacy) vs body gate (contact + arousal). Objection can refuse
+  // psych while high arousal still lets physio / edge / wetness land.
+  const bodyContactOk =
+    !clothingBlocked && arousalReadiness !== 'hardUnready';
+  const mindOk = intimacyAllowed && bodyContactOk;
+  const commit01 = bodyCommit01(currentArousal);
+  const basePhysio = bodyContactOk
+    ? Math.min(1, stim.physio * (0.35 + 0.65 * erogenous) * stimClothMult)
+    : 0;
+
+  if (mindOk) {
     psychQuality = Math.min(
       1.25,
       psychRaw *
@@ -418,19 +459,19 @@ function resolveOneChannel(
         bondPsych *
         skinshipCrest
     );
-    physioQuality = Math.min(
-      1,
-      stim.physio * (0.35 + 0.65 * erogenous) * stimClothMult
-    );
+    physioQuality = basePhysio;
     if (arousalReadiness === 'softUnready') {
       psychQuality *= T.arousalGate.softUnreadyQualityMult;
       physioQuality *= T.arousalGate.softUnreadyQualityMult;
     }
+  } else if (bodyContactOk && !intimacyAllowed && commit01 > 0.02) {
+    // Objecting but already heated — body still answers.
+    physioQuality = basePhysio * commit01 * T.bond.bodyCommit.physioMult;
   }
 
   const physioScore = physioQuality * (0.25 + 0.75 * erogenous);
   const pain =
-    receptiveEnough && action.pain != null && action.pain > 0
+    bodyContactOk && action.pain != null && action.pain > 0
       ? Math.max(0, Math.min(1, action.pain))
       : 0;
 
@@ -535,8 +576,9 @@ export function mergeResolvedChannels(
     readinessDiscomfortFlat += T.arousalGate.softUnreadyDiscomfort;
   }
 
-  // If any channel is hard-unready, zero merged pleasure (attempt is rebuffed).
-  if (arousalHardBlocked || anyViolation) {
+  // Hard-unready: too cold — rebuff the beat. Intimacy violation keeps physio
+  // (body-commit) while psych from willing channels may still soft-OR in.
+  if (arousalHardBlocked) {
     psychQuality = 0;
     physioQuality = 0;
   }
@@ -544,9 +586,10 @@ export function mergeResolvedChannels(
   const overstepSeverities = resolved
     .filter(
       (r) =>
-        r.intimacyAllowed &&
         r.arousalReadiness !== 'hardUnready' &&
-        r.overstep
+        !r.clothingBlocked &&
+        r.overstep &&
+        (r.intimacyAllowed || r.physioQuality > 0.02)
     )
     .map((r) => r.overstepSeverity);
   const overstep = overstepSeverities.length > 0;
@@ -557,7 +600,9 @@ export function mergeResolvedChannels(
   const pronoun = proactive.sex === 'M' ? 'his' : 'her';
   const bits = resolved.map((r) => {
     if (!r.intimacyAllowed) {
-      return `tried to ${r.action.verb} ${recipient.name}'s ${r.targetName} (trust/affection blocked)`;
+      return r.physioQuality > 0.02
+        ? `${r.action.verb} ${recipient.name}'s ${r.targetName} with ${pronoun} ${r.actorName} (objecting — body still answering)`
+        : `tried to ${r.action.verb} ${recipient.name}'s ${r.targetName} (trust/affection blocked)`;
     }
     if (r.clothingBlocked) {
       return `tried to ${r.action.verb} ${recipient.name}'s ${r.targetName} (blocked by clothing/armor)`;
@@ -578,21 +623,29 @@ export function mergeResolvedChannels(
   const worstOver = resolved.find(
     (r) =>
       r.overstep &&
-      r.intimacyAllowed &&
-      r.arousalReadiness !== 'hardUnready'
+      r.arousalReadiness !== 'hardUnready' &&
+      !r.clothingBlocked &&
+      (r.intimacyAllowed || r.physioQuality > 0.02)
   );
   const primaryStim = worstOver?.stimulation ?? primary.stimulation;
 
   let pain = 0;
   let painIntensity = 0;
+  let hypersensStimIntensity = 0;
   for (const r of resolved) {
-    if (
-      r.intimacyAllowed &&
+    const bodyLive =
       r.arousalReadiness !== 'hardUnready' &&
-      r.pain > pain
-    ) {
+      !r.clothingBlocked &&
+      (r.intimacyAllowed || r.physioQuality > 0.02);
+    if (bodyLive && r.pain > pain) {
       pain = r.pain;
       painIntensity = r.channel.intensity;
+    }
+    if (bodyLive && isPostOrgasmHypersensTarget(r.channel.targetPart)) {
+      hypersensStimIntensity = Math.max(
+        hypersensStimIntensity,
+        r.channel.intensity
+      );
     }
   }
 
@@ -618,6 +671,7 @@ export function mergeResolvedChannels(
     readinessDiscomfortFlat,
     pain: round3(pain),
     painIntensity,
+    hypersensStimIntensity: round3(hypersensStimIntensity),
     clothingBlocked: resolved.some((r) => r.clothingBlocked),
   };
 }

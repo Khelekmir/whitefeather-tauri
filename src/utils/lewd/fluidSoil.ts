@@ -27,6 +27,34 @@ import {
   type UnderwearWetnessReport,
   type WetPatchSize,
 } from './undergarmentWetnessFlavor';
+import {
+  bareSeatRangeFromScore,
+  bareSeatRangeLabel,
+  bareSkinFormFromScore,
+  bareSkinFormLabel,
+  bareSkinRangeLabel,
+  bareThighRangeFromRegions,
+  growthRateFromDelta,
+  growthRateLabel,
+  legRegionWetLabel,
+  narrateBareSeatRun,
+  narrateBareThighRun,
+  narrateClothStain,
+  seatTrailWetsAnalVerge,
+  skinRegionWetLabel,
+  type FluidContentsWord,
+  type SkinFilmFeel,
+  type WetGrowthRate,
+} from './fluidWetnessLabels';
+import {
+  addOrificeSlickLayer,
+  advanceOrificeSlickLayers,
+  describeOrificeSlick,
+  lubricantKindFromSoilKind,
+  type OrificeSlickById,
+  type OrificeSlickReport,
+} from './orificeSlick';
+import { accrueLustSecretionTrickle } from './vaginalSecretion';
 
 const SOIL_KINDS: FluidSoilKind[] = [
   'blood',
@@ -38,7 +66,28 @@ const SOIL_KINDS: FluidSoilKind[] = [
 ];
 
 /** Soft crotch layers for seepage (inner → outer). Extensible for future deposits. */
+/** Core crotch soak slots. Shirt dresses (garmentLength) join when reclined — see crotchSeepageLayers. */
 export const CROTCH_SEEPAGE_SLOTS: ItemSlot[] = ['underwear', 'leg'];
+
+/**
+ * Trousers/hose hug the crotch; dresses/skirts with garmentLength do not.
+ * Slip-skirt underwear styles also skip crotch hug (seat-first when reclined).
+ */
+export function garmentHugsCrotch(item: Item): boolean {
+  const tpl = getItemTemplate(item.templateId);
+  if (!tpl) return item.slot === 'underwear' || item.slot === 'leg';
+  if (tpl.garmentLength) return false;
+  const style = tpl.underwearStyle;
+  if (style === 'longSlipSkirt' || style === 'shortSlipSkirt') return false;
+  if (item.slot === 'leg' || item.slot === 'underwear') return true;
+  return false;
+}
+
+function isRearPosture(posture: EncounterPosture): boolean {
+  return (
+    posture === 'seated' || posture === 'lying' || posture === 'sideLying'
+  );
+}
 
 export const EMPTY_SOIL_CHANNEL: FluidSoilChannel = { wet: 0, dry: 0 };
 
@@ -240,11 +289,25 @@ export function soakCapacityPoints(
   );
 }
 
-export function crotchSeepageLayers(unit: DetailedUnit): Item[] {
+/**
+ * Underwear → leg pants, plus shirt-slot dresses when reclined (seat soil).
+ * Standing short/long dresses are omitted so panty overflow can run on bare thighs.
+ */
+export function crotchSeepageLayers(
+  unit: DetailedUnit,
+  posture: EncounterPosture = 'standing'
+): Item[] {
   const layers: Item[] = [];
   for (const slot of CROTCH_SEEPAGE_SLOTS) {
     const item = getEquippedItem(unit, slot);
     if (item) layers.push(item);
+  }
+  if (isRearPosture(posture)) {
+    const shirt = getEquippedItem(unit, 'shirt');
+    if (shirt) {
+      const tpl = getItemTemplate(shirt.templateId);
+      if (tpl?.garmentLength) layers.push(shirt);
+    }
   }
   return layers;
 }
@@ -284,30 +347,115 @@ export interface SeepageLayerResult {
   region: ClothSoilRegion;
 }
 
-export interface CrotchSeepageResult {
-  unit: DetailedUnit;
-  layers: SeepageLayerResult[];
-  skinAmount01: number;
-  /** True when fluid stuck on a layer outside underwear. */
-  outerSeep: boolean;
-}
-
 export interface CrotchSeepageOpts {
-  /** Standing vs seated/lying — routes outer overflow region. */
+  /** Routes cloth overflow + skin drip direction. */
   posture?: EncounterPosture;
   /**
    * Optional direct outer deposit region (male/female ejaculate on seat/thigh).
    * When set and no underwear path, writes this region on leg/skin.
    */
   preferOuterRegion?: ClothSoilRegion;
+  /**
+   * Partner unit for mounted/cowgirl overflow (pants / crotch cloth).
+   * When omitted, partner share is still computed and returned as partnerDrip01.
+   */
+  partner?: DetailedUnit;
 }
 
 /** Outer leg region for overflow given posture. */
 export function outerOverflowRegion(
   posture: EncounterPosture = 'standing'
 ): ClothSoilRegion {
-  if (posture === 'seated' || posture === 'lying') return 'seat';
+  if (
+    posture === 'seated' ||
+    posture === 'lying' ||
+    posture === 'sideLying'
+  ) {
+    return 'seat';
+  }
   return 'crotch';
+}
+
+export type SkinDripRegion = 'crotch' | 'thighInner' | 'calf' | 'seat';
+
+const SKIN_DRIP_ORDER: SkinDripRegion[] = [
+  'crotch',
+  'thighInner',
+  'calf',
+  'seat',
+];
+
+/** Cloth soil region → co-located skin film region. */
+function clothRegionToSkin(region: ClothSoilRegion): SkinDripRegion | null {
+  if (region === 'crotch') return 'crotch';
+  if (region === 'seat') return 'seat';
+  if (region === 'innerThigh') return 'thighInner';
+  if (region === 'hem') return 'calf';
+  return null;
+}
+
+/** Posture → bare-skin runoff chain (uncovered only). */
+function skinRunChain(posture: EncounterPosture): SkinDripRegion[] {
+  if (posture === 'seated' || posture === 'lying') return ['crotch', 'seat'];
+  if (posture === 'sideLying') return ['crotch', 'seat', 'thighInner'];
+  if (posture === 'handsKnees') return ['crotch', 'thighInner']; // knees on a surface
+  return ['crotch', 'thighInner', 'calf']; // standing | mounted
+}
+
+function clothSnapKey(slot: ItemSlot, region: ClothSoilRegion): string {
+  return `cloth:${slot}:${region}`;
+}
+
+function skinSnapKey(region: SkinDripRegion): string {
+  return `skin:${region}`;
+}
+
+function recordSoilGrowth(
+  unit: DetailedUnit,
+  key: string,
+  prevScore: number,
+  nextScore: number,
+  deposit01?: number
+): DetailedUnit {
+  const rate = growthRateFromDelta(prevScore, nextScore, { deposit01 });
+  const snap = { ...(unit.lewdStats.dynamic.soilScoreSnap ?? {}) };
+  const rates = { ...(unit.lewdStats.dynamic.soilGrowthRate ?? {}) };
+  snap[key] = nextScore;
+  rates[key] = rate;
+  return {
+    ...unit,
+    lewdStats: {
+      ...unit.lewdStats,
+      dynamic: {
+        ...unit.lewdStats.dynamic,
+        soilScoreSnap: snap,
+        soilGrowthRate: rates,
+      },
+    },
+  };
+}
+
+function growthRateForKey(
+  unit: DetailedUnit,
+  key: string
+): WetGrowthRate {
+  return unit.lewdStats.dynamic.soilGrowthRate?.[key] ?? 'clearlyEstablished';
+}
+
+function fluidContentsWord(unit: DetailedUnit): FluidContentsWord {
+  const w = describeUnderwearWetness(unit);
+  if (w.contents === 'mixed') return 'mixed slick';
+  if (w.contents === 'semenDominant') return 'semen';
+  if (w.contents === 'arousalOnly') return 'arousal fluid';
+  // Skin-only path: peek skin bags
+  const skin = normalizeSoilBag(unit.lewdStats.dynamic.crotchSoil);
+  const semen = soilIntensity(skin.semen);
+  const arousal =
+    soilIntensity(skin.arousalFluid) + soilIntensity(skin.vaginalDischarge) * 0.55;
+  if (semen >= 3.5 && arousal >= 4.5) return 'mixed slick';
+  if (semen >= 3.5) return 'semen';
+  if (arousal >= 4.5) return 'arousal fluid';
+  return 'wetness';
 }
 
 /**
@@ -360,22 +508,512 @@ function splitLateralAndThrough(
   return { stuck, through, saturated: false };
 }
 
-/** Standing: underwear → leg crotch → leg innerThigh. Seated/lying: → leg seat. */
+/**
+ * Cloth region chain on a garment for this posture.
+ * - Pants (hug crotch): lying/seated crotch → seat; standing crotch → innerThigh.
+ * - Dress/skirt (garmentLength, no crotch hug): reclined seat only; standing unused here.
+ * - Panties (hug): reclined crotch → seat; standing crotch.
+ * - Slip-skirt underwear: reclined seat(-first); standing crotch light panel.
+ */
 function regionChainForLayer(
   item: Item,
   posture: EncounterPosture
 ): ClothSoilRegion[] {
+  const hugs = garmentHugsCrotch(item);
+  if (isRearPosture(posture)) {
+    if (hugs) {
+      return posture === 'sideLying'
+        ? ['crotch', 'seat', 'innerThigh']
+        : ['crotch', 'seat'];
+    }
+    return posture === 'sideLying' ? ['seat', 'innerThigh'] : ['seat'];
+  }
+  // standing | handsKnees | mounted
   if (item.slot === 'underwear') return ['crotch'];
-  if (posture === 'seated' || posture === 'lying') return ['seat'];
+  if (!hugs) return ['hem'];
   return ['crotch', 'innerThigh'];
+}
+
+function getSkinRegionBag(
+  unit: DetailedUnit,
+  region: SkinDripRegion
+): FluidSoilBag {
+  const map = unit.lewdStats.dynamic.skinFluidByRegion;
+  if (map?.[region]) return normalizeSoilBag(map[region]);
+  if (region === 'crotch' && unit.lewdStats.dynamic.crotchSoil) {
+    return normalizeSoilBag(unit.lewdStats.dynamic.crotchSoil);
+  }
+  return emptySoilBag();
+}
+
+function getSkinRegionFeel(
+  unit: DetailedUnit,
+  region: SkinDripRegion
+): SkinFilmFeel {
+  return unit.lewdStats.dynamic.skinFilmFeelByRegion?.[region] ?? 'running';
+}
+
+function setSkinRegionBag(
+  unit: DetailedUnit,
+  region: SkinDripRegion,
+  bag: FluidSoilBag,
+  feel?: SkinFilmFeel
+): DetailedUnit {
+  const prev = { ...(unit.lewdStats.dynamic.skinFluidByRegion ?? {}) };
+  prev[region] = bag;
+  const feelMap = { ...(unit.lewdStats.dynamic.skinFilmFeelByRegion ?? {}) };
+  if (feel) {
+    // Tacky wins over running when both contact the same region (cloth wick / undress).
+    if (feel === 'tacky' || feelMap[region] !== 'tacky') {
+      feelMap[region] = feel;
+    }
+  }
+  const dynamic = {
+    ...unit.lewdStats.dynamic,
+    skinFluidByRegion: prev,
+    skinFilmFeelByRegion: feelMap,
+  };
+  // Keep legacy crotchSoil mirrored.
+  if (region === 'crotch') {
+    dynamic.crotchSoil = bag;
+  }
+  return {
+    ...unit,
+    lewdStats: { ...unit.lewdStats, dynamic },
+  };
+}
+
+/**
+ * Contact-wick: dampen skin only where cloth just absorbed fluid.
+ * Result is tacky/smeared — does not run further under the garment.
+ */
+export function applyClothContactWick(
+  unit: DetailedUnit,
+  kind: FluidSoilKind,
+  clothRegion: ClothSoilRegion,
+  stuck01: number
+): DetailedUnit {
+  const share = T.cycle.clothSeepage.skinDrip.clothWickToSkinShare;
+  const amount01 = stuck01 * share;
+  if (!(amount01 > 1e-6)) return unit;
+  const skinRegion = clothRegionToSkin(clothRegion);
+  if (!skinRegion) return unit;
+  const Sk = T.cycle.clothSeepage.skinDrip;
+  const bag = getSkinRegionBag(unit, skinRegion);
+  const prevScore = skinFilmWetPoints(bag);
+  const room01 = Math.max(0, (Sk.filmCapacity - prevScore) / 100);
+  const stick = Math.min(amount01, room01);
+  if (!(stick > 1e-6)) return unit;
+  let next = setSkinRegionBag(
+    unit,
+    skinRegion,
+    applyWetSoil(bag, kind, stick),
+    'tacky'
+  );
+  return recordSoilGrowth(
+    next,
+    skinSnapKey(skinRegion),
+    prevScore,
+    skinFilmWetPoints(getSkinRegionBag(next, skinRegion)),
+    stick
+  );
+}
+
+function skinFilmWetPoints(bag: FluidSoilBag): number {
+  return SOIL_KINDS.reduce((sum, k) => sum + (bag[k].wet ?? 0), 0);
+}
+
+function getAnalVergeBag(unit: DetailedUnit): FluidSoilBag {
+  return normalizeSoilBag(unit.lewdStats.dynamic.analVergeWet);
+}
+
+function setAnalVergeBag(unit: DetailedUnit, bag: FluidSoilBag): DetailedUnit {
+  return {
+    ...unit,
+    lewdStats: {
+      ...unit.lewdStats,
+      dynamic: {
+        ...unit.lewdStats.dynamic,
+        analVergeWet: bag,
+      },
+    },
+  };
+}
+
+function setOrificeSlick(
+  unit: DetailedUnit,
+  slick: OrificeSlickById
+): DetailedUnit {
+  return {
+    ...unit,
+    lewdStats: {
+      ...unit.lewdStats,
+      dynamic: {
+        ...unit.lewdStats.dynamic,
+        orificeSlick: slick,
+      },
+    },
+  };
+}
+
+/** Deposit verge-dwell soil into anus orificeSlick layers. */
+function writeAnusSlickFromVergeDwell(
+  unit: DetailedUnit,
+  kind: FluidSoilKind,
+  stuck01: number
+): DetailedUnit {
+  const lubeKind = lubricantKindFromSoilKind(kind);
+  if (!lubeKind || !(stuck01 > 1e-6)) return unit;
+  const prev = unit.lewdStats.dynamic.orificeSlick ?? {};
+  const anus = addOrificeSlickLayer(prev.anus, lubeKind, stuck01);
+  return setOrificeSlick(unit, { ...prev, anus });
+}
+
+/** Idle evaporate for all orifice slick layers. */
+export function advanceOrificeSlick(
+  unit: DetailedUnit,
+  hours: number
+): DetailedUnit {
+  if (!(hours > 0)) return unit;
+  const prev = unit.lewdStats.dynamic.orificeSlick;
+  if (!prev) return unit;
+  const next: OrificeSlickById = {};
+  let any = false;
+  for (const orifice of ['vagina', 'anus', 'mouth'] as const) {
+    const layers = advanceOrificeSlickLayers(prev[orifice], hours);
+    if (layers.length) {
+      next[orifice] = layers;
+      any = true;
+    }
+  }
+  return setOrificeSlick(unit, any ? next : {});
+}
+
+/** Wet points currently held at the anal verge pool. */
+export function analVergeWetPoints(unit: DetailedUnit): number {
+  return skinFilmWetPoints(getAnalVergeBag(unit));
+}
+
+export interface AnalVergeDwellResult {
+  unit: DetailedUnit;
+  /** amount01 that stuck in the verge pool. */
+  stuck01: number;
+  /** amount01 shed onto seat film from a full verge. */
+  overspillToSeat01: number;
+  /** amount01 that left the body when seat film was also full (toward the bed). */
+  drippedOff01: number;
+}
+
+/**
+ * Capture a lasting anal-verge pool from seat-trail fluid.
+ * Survives runoff past the verge. When the pool is full, rejected dwell
+ * bleeds onto seat film; if seat is also full, the rest drips toward the bed.
+ */
+export function applyAnalVergeDwell(
+  unit: DetailedUnit,
+  kind: FluidSoilKind,
+  seatArrival01: number
+): AnalVergeDwellResult {
+  const Sk = T.cycle.clothSeepage.skinDrip;
+  const amount01 = seatArrival01 * Sk.vergeDwellShare;
+  const empty: AnalVergeDwellResult = {
+    unit,
+    stuck01: 0,
+    overspillToSeat01: 0,
+    drippedOff01: 0,
+  };
+  if (!(amount01 > 1e-6)) return empty;
+
+  const bag = getAnalVergeBag(unit);
+  const load = skinFilmWetPoints(bag);
+  const room01 = Math.max(0, (Sk.vergeCapacity - load) / 100);
+  const stick = Math.min(amount01, room01);
+  let overspill01 = Math.max(0, amount01 - stick) * Sk.vergeOverspillToSeatShare;
+
+  let next = unit;
+  if (stick > 1e-6) {
+    const prevScore = load;
+    next = setAnalVergeBag(next, applyWetSoil(bag, kind, stick));
+    next = recordSoilGrowth(
+      next,
+      'analVerge',
+      prevScore,
+      analVergeWetPoints(next),
+      stick
+    );
+    // Passive writer: verge dwell feeds anus orificeSlick.
+    next = writeAnusSlickFromVergeDwell(next, kind, stick);
+  }
+
+  let overspillToSeat01 = 0;
+  let drippedOff01 = 0;
+  // Saturated verge sheds onto seat film (running rear trail).
+  if (overspill01 > 1e-6) {
+    const seatBag = getSkinRegionBag(next, 'seat');
+    const seatPrev = skinFilmWetPoints(seatBag);
+    const seatRoom01 = Math.max(0, (Sk.filmCapacity - seatPrev) / 100);
+    const seatStick = Math.min(overspill01, seatRoom01);
+    if (seatStick > 1e-6) {
+      next = setSkinRegionBag(
+        next,
+        'seat',
+        applyWetSoil(seatBag, kind, seatStick),
+        'running'
+      );
+      next = recordSoilGrowth(
+        next,
+        skinSnapKey('seat'),
+        seatPrev,
+        skinFilmWetPoints(getSkinRegionBag(next, 'seat')),
+        seatStick
+      );
+      overspillToSeat01 = seatStick;
+    }
+    drippedOff01 = Math.max(0, overspill01 - seatStick);
+  }
+
+  return { unit: next, stuck01: stick, overspillToSeat01, drippedOff01 };
+}
+
+/** Idle evaporate for the anal-verge pool (semen dries faster). */
+export function advanceAnalVergeWet(
+  unit: DetailedUnit,
+  hours: number
+): DetailedUnit {
+  if (!(hours > 0) || unit.sex !== 'F') return unit;
+  const bag = getAnalVergeBag(unit);
+  if (skinFilmWetPoints(bag) < 0.15) return unit;
+  const Sk = T.cycle.clothSeepage.skinDrip;
+  const nextBag = emptySoilBag();
+  for (const kind of SOIL_KINDS) {
+    const mult = kind === 'semen' ? Sk.vergeSemenEvaporateMult : 1;
+    const rate = Sk.vergeEvaporatePerHour * mult;
+    const lost = bag[kind].wet * (1 - Math.exp(-rate * hours));
+    nextBag[kind] = {
+      wet: clamp100(bag[kind].wet - lost),
+      dry: bag[kind].dry,
+    };
+  }
+  const prevScore = skinFilmWetPoints(bag);
+  const next = setAnalVergeBag(unit, nextBag);
+  return recordSoilGrowth(
+    next,
+    'analVerge',
+    prevScore,
+    analVergeWetPoints(next),
+    0
+  );
+}
+
+/**
+ * Bare-skin free-running film (uncovered skin only).
+ * Does not soak into flesh; thin film; will not drench a whole leg.
+ * Feel is marked running so idle advance can migrate downhill.
+ * Seat-chain deposits also fill anal-verge dwell.
+ */
+export function applySkinSurfaceDrip(
+  unit: DetailedUnit,
+  kind: FluidSoilKind,
+  amount01: number,
+  posture: EncounterPosture = 'standing'
+): { unit: DetailedUnit; filmStuck01: number; drippedOff01: number } {
+  const Sk = T.cycle.clothSeepage.skinDrip;
+  let flow = Math.max(0, amount01);
+  let filmStuck01 = 0;
+  let drippedOff01 = 0;
+  if (!(flow > 1e-6)) {
+    return { unit, filmStuck01: 0, drippedOff01: 0 };
+  }
+
+  const chain = skinRunChain(posture);
+
+  let next = unit;
+  for (const region of chain) {
+    if (flow < 1e-6) break;
+    const bag = getSkinRegionBag(next, region);
+    const prevScore = skinFilmWetPoints(bag);
+    const load = prevScore;
+    const room01 = Math.max(0, (Sk.filmCapacity - load) / 100);
+    const intended = flow * Sk.filmStickShare;
+    const stick = Math.min(intended, room01);
+    if (stick > 1e-6) {
+      const soiled = applyWetSoil(bag, kind, stick);
+      next = setSkinRegionBag(next, region, soiled, 'running');
+      const nextScore = skinFilmWetPoints(getSkinRegionBag(next, region));
+      next = recordSoilGrowth(
+        next,
+        skinSnapKey(region),
+        prevScore,
+        nextScore,
+        stick
+      );
+      filmStuck01 += stick;
+    }
+    // Seat station: dwell from arrival (intended), not only what fit on seat film.
+    if (region === 'seat' && intended > 1e-6) {
+      const dwell = applyAnalVergeDwell(next, kind, intended);
+      next = dwell.unit;
+      filmStuck01 += dwell.overspillToSeat01;
+      drippedOff01 += dwell.drippedOff01;
+    }
+    const runoff = Math.min(
+      Math.max(0, flow - stick),
+      Sk.maxRunoffPerApply01
+    );
+    flow = runoff;
+  }
+
+  // Leftover after calf (or end of chain) drips off the body.
+  if (flow > 1e-6) {
+    drippedOff01 = flow * Sk.dripOffShare;
+  }
+  return { unit: next, filmStuck01, drippedOff01 };
+}
+
+/**
+ * Idle skin film: running migrates downhill when uncovered; tacky evaporates in place.
+ * While legwear is worn, nothing runs — cloth already held the path.
+ */
+export function advanceSkinSurfaceDrip(
+  unit: DetailedUnit,
+  hours: number,
+  posture: EncounterPosture = 'standing'
+): DetailedUnit {
+  if (!(hours > 0) || unit.sex !== 'F') return unit;
+  const Sk = T.cycle.clothSeepage.skinDrip;
+  const hasLeg = !!getEquippedItem(unit, 'leg');
+  let next = advanceAnalVergeWet(unit, hours);
+  next = advanceOrificeSlick(next, hours);
+
+  // Tacky (and any film under pants): evaporate in place — no downhill run.
+  const tackyEvap = 1 - Math.exp(-Sk.tackyEvaporatePerHour * hours);
+  for (const region of SKIN_DRIP_ORDER) {
+    const feel = getSkinRegionFeel(next, region);
+    if (!hasLeg && feel === 'running') continue;
+    const bag = getSkinRegionBag(next, region);
+    if (skinFilmWetPoints(bag) < 0.2) continue;
+    const nextBag = emptySoilBag();
+    for (const kind of SOIL_KINDS) {
+      const lost = bag[kind].wet * tackyEvap;
+      nextBag[kind] = {
+        wet: clamp100(bag[kind].wet - lost),
+        dry: bag[kind].dry,
+      };
+    }
+    next = setSkinRegionBag(next, region, nextBag, feel);
+  }
+
+  if (hasLeg) return next;
+
+  // Uncovered: migrate running film down the posture chain.
+  const migrate = 1 - Math.exp(-Sk.migratePerHour * hours);
+  const chain = skinRunChain(posture);
+
+  for (let i = 0; i < chain.length; i++) {
+    const region = chain[i]!;
+    if (getSkinRegionFeel(next, region) !== 'running') continue;
+    const bag = getSkinRegionBag(next, region);
+    const prevScore = skinFilmWetPoints(bag);
+    let movedTotal = 0;
+    const nextBag = emptySoilBag();
+    for (const kind of SOIL_KINDS) {
+      const wet = bag[kind].wet;
+      const move = wet * migrate;
+      nextBag[kind] = {
+        wet: clamp100(wet - move),
+        dry: bag[kind].dry,
+      };
+      movedTotal += move;
+    }
+    next = setSkinRegionBag(next, region, nextBag, 'running');
+    next = recordSoilGrowth(
+      next,
+      skinSnapKey(region),
+      prevScore,
+      skinFilmWetPoints(getSkinRegionBag(next, region)),
+      0
+    );
+    if (movedTotal < 0.2) continue;
+    if (i + 1 < chain.length) {
+      const dest = chain[i + 1]!;
+      const destPrev = skinFilmWetPoints(getSkinRegionBag(next, dest));
+      let destBag = getSkinRegionBag(next, dest);
+      for (const kind of SOIL_KINDS) {
+        const wetPts = bag[kind].wet * migrate;
+        if (wetPts > 0.01) {
+          destBag = applyWetSoil(destBag, kind, wetPts / 100);
+        }
+      }
+      // Downstream of a run stays running unless already tacky.
+      next = setSkinRegionBag(next, dest, destBag, 'running');
+      next = recordSoilGrowth(
+        next,
+        skinSnapKey(dest),
+        destPrev,
+        skinFilmWetPoints(getSkinRegionBag(next, dest)),
+        movedTotal / 100
+      );
+    }
+  }
+  return next;
+}
+
+/**
+ * When a wet garment is peeled, leave tacky/smeared damp on skin where cloth was wet.
+ * Freshly bared thighs after soaked pants — smear, not a free-running trail.
+ */
+export function transferGarmentDampToSkin(
+  unit: DetailedUnit,
+  item: Item
+): DetailedUnit {
+  const share = T.cycle.clothSeepage.skinDrip.undressTransferShare;
+  if (!(share > 0)) return unit;
+  const regions: ClothSoilRegion[] = ['crotch', 'seat', 'innerThigh', 'hem'];
+  let next = unit;
+  for (const region of regions) {
+    const bag = normalizeSoilBag(soilBagForRegion(item, region));
+    const skinRegion = clothRegionToSkin(region);
+    if (!skinRegion) continue;
+    for (const kind of SOIL_KINDS) {
+      const wet01 = (bag[kind].wet ?? 0) / 100;
+      const amount01 = wet01 * share;
+      if (amount01 < 0.002) continue;
+      const Sk = T.cycle.clothSeepage.skinDrip;
+      const skinBag = getSkinRegionBag(next, skinRegion);
+      const load = skinFilmWetPoints(skinBag);
+      const room01 = Math.max(0, (Sk.filmCapacity - load) / 100);
+      const stick = Math.min(amount01, room01);
+      if (stick > 1e-6) {
+        next = setSkinRegionBag(
+          next,
+          skinRegion,
+          applyWetSoil(skinBag, kind, stick),
+          'tacky'
+        );
+      }
+    }
+  }
+  return next;
+}
+
+export interface CrotchSeepageResult {
+  unit: DetailedUnit;
+  layers: SeepageLayerResult[];
+  skinAmount01: number;
+  /** True when fluid stuck on a layer outside underwear. */
+  outerSeep: boolean;
+  /** Bare-skin film deposited this apply. */
+  skinFilm01: number;
+  /** Amount reserved / applied to partner (mounted). */
+  partnerDrip01: number;
+  partner?: DetailedUnit;
 }
 
 /**
  * Shared crotch seepage engine (kind-open).
- * Lateral expand on inner layer + optional concurrent through from ~coin score.
- * Posture routes outer deposit to crotch vs seat. Regions accept direct ejaculate later.
- *
- * Later: anal plug influences anal retention/leak; bare thigh/calf trail (Phase 2).
+ * Cloth absorbs by posture; skin under wet cloth is contact-wicked (tacky).
+ * Free-running bare-skin trail only when that path is uncovered (no legwear).
+ * Mounted reserves a share for partner crotch cloth.
  */
 export function applyCrotchFluidSeepage(
   unit: DetailedUnit,
@@ -388,30 +1026,48 @@ export function applyCrotchFluidSeepage(
   let flow = Math.max(0, amount01);
   const layersHit: SeepageLayerResult[] = [];
   let nextUnit = unit;
+  let partner = opts?.partner;
   let outerSeep = false;
+  let partnerDrip01 = 0;
+  let skinFilm01 = 0;
 
   if (!(flow > 1e-6)) {
-    return { unit, layers: [], skinAmount01: 0, outerSeep: false };
+    return {
+      unit,
+      layers: [],
+      skinAmount01: 0,
+      outerSeep: false,
+      skinFilm01: 0,
+      partnerDrip01: 0,
+      partner,
+    };
   }
 
-  const layers = crotchSeepageLayers(unit);
+  const layers = crotchSeepageLayers(unit, posture);
+  /** Pants or reclined dress — outer cloth holds runoff (no free skin past it). */
+  const hasOuterCloth = layers.some((l) => l.slot !== 'underwear');
+
   if (layers.length === 0) {
-    const crotchSoil = applyWetSoil(
-      nextUnit.lewdStats.dynamic.crotchSoil,
-      kind,
-      flow
-    );
+    // Nude / no crotch cloth — mounted can still soil partner; rest → running skin trail.
+    if (posture === 'mounted' && flow > 1e-6) {
+      partnerDrip01 = flow * S.partnerDripShareMounted;
+      flow = Math.max(0, flow - partnerDrip01);
+      if (partner && partnerDrip01 > 0.002) {
+        const pResult = applyCrotchFluidSeepage(partner, kind, partnerDrip01, {
+          posture: 'seated',
+        });
+        partner = pResult.unit;
+      }
+    }
+    const skin = applySkinSurfaceDrip(nextUnit, kind, flow, posture);
     return {
-      unit: {
-        ...nextUnit,
-        lewdStats: {
-          ...nextUnit.lewdStats,
-          dynamic: { ...nextUnit.lewdStats.dynamic, crotchSoil },
-        },
-      },
+      unit: skin.unit,
       layers: [],
-      skinAmount01: flow,
+      skinAmount01: skin.filmStuck01,
       outerSeep: false,
+      skinFilm01: skin.filmStuck01,
+      partnerDrip01,
+      partner,
     };
   }
 
@@ -419,13 +1075,38 @@ export function applyCrotchFluidSeepage(
     if (flow < 1e-6) break;
     const item = layers[i]!;
     const isOuter = item.slot !== 'underwear';
-    const regions = regionChainForLayer(item, posture);
 
+    // After underwear, mounted posture diverts a share to partner before her outer cloth.
+    if (
+      isOuter &&
+      posture === 'mounted' &&
+      partnerDrip01 <= 0 &&
+      flow > 1e-6
+    ) {
+      partnerDrip01 = flow * S.partnerDripShareMounted;
+      flow = Math.max(0, flow - partnerDrip01);
+      if (partner && partnerDrip01 > 0.002) {
+        const pResult = applyCrotchFluidSeepage(partner, kind, partnerDrip01, {
+          posture: 'seated',
+        });
+        partner = pResult.unit;
+      }
+    }
+
+    const regions = regionChainForLayer(item, posture);
     for (const region of regions) {
       if (flow < 1e-6) break;
       const { stuck, through } = splitLateralAndThrough(item, flow, region);
       if (stuck > 1e-6) {
+        const prevScore = regionSoilScore(item, region);
         applyWetSoilToItemRegion(item, kind, stuck, region);
+        nextUnit = recordSoilGrowth(
+          nextUnit,
+          clothSnapKey(item.slot, region),
+          prevScore,
+          regionSoilScore(item, region),
+          stuck
+        );
         layersHit.push({
           slot: item.slot,
           name: item.name,
@@ -433,28 +1114,42 @@ export function applyCrotchFluidSeepage(
           region,
         });
         if (isOuter) outerSeep = true;
+        // Contact wick under wet cloth; seat stick feeds anal-verge dwell.
+        nextUnit = applyClothContactWick(nextUnit, kind, region, stuck);
+        skinFilm01 += stuck * S.skinDrip.clothWickToSkinShare;
+        if (region === 'seat') {
+          nextUnit = applyAnalVergeDwell(nextUnit, kind, stuck).unit;
+        }
       }
       flow = through;
     }
+
+    if (isOuter) {
+      // Outer pants/dress holds leftover — no free skin runoff past it.
+      if (hasOuterCloth) flow = 0;
+    } else if (!hasOuterCloth && flow > 1e-6) {
+      // Underwear done; no outer cloth → bare trail (or partner if mounted).
+      if (posture === 'mounted' && partnerDrip01 <= 0) {
+        partnerDrip01 = flow * S.partnerDripShareMounted;
+        flow = Math.max(0, flow - partnerDrip01);
+        if (partner && partnerDrip01 > 0.002) {
+          const pResult = applyCrotchFluidSeepage(partner, kind, partnerDrip01, {
+            posture: 'seated',
+          });
+          partner = pResult.unit;
+        }
+      }
+      break;
+    }
   }
 
-  let skinAmount01 = 0;
-  if (flow > 1e-6) {
-    skinAmount01 = flow * S.skinSmearFraction;
-    if (skinAmount01 > 1e-6) {
-      const crotchSoil = applyWetSoil(
-        nextUnit.lewdStats.dynamic.crotchSoil,
-        kind,
-        skinAmount01
-      );
-      nextUnit = {
-        ...nextUnit,
-        lewdStats: {
-          ...nextUnit.lewdStats,
-          dynamic: { ...nextUnit.lewdStats.dynamic, crotchSoil },
-        },
-      };
-    }
+  // Bare-skin free runoff only when uncovered (panties / nude path).
+  let skinAmount01 = skinFilm01;
+  if (!hasOuterCloth && flow > 1e-6) {
+    const skin = applySkinSurfaceDrip(nextUnit, kind, flow, posture);
+    nextUnit = skin.unit;
+    skinFilm01 += skin.filmStuck01;
+    skinAmount01 = skinFilm01 + skin.drippedOff01;
   }
 
   return {
@@ -462,6 +1157,9 @@ export function applyCrotchFluidSeepage(
     layers: layersHit,
     skinAmount01,
     outerSeep,
+    skinFilm01,
+    partnerDrip01,
+    partner,
   };
 }
 
@@ -540,35 +1238,91 @@ export function applySoilToEquippedCloth(
   };
 }
 
+export interface DischargeSoilResult {
+  unit: DetailedUnit;
+  partner?: DetailedUnit;
+  partnerDrip01: number;
+}
+
 export function applyDischargesToRecipientSoil(
   recipient: DetailedUnit,
   discharges: FluidDischargeEvent[],
   recipientIsTarget: boolean,
-  opts?: { encounterArousal?: number; posture?: EncounterPosture }
-): DetailedUnit {
-  if (!recipientIsTarget || recipient.sex !== 'F') return recipient;
+  opts?: {
+    encounterArousal?: number;
+    posture?: EncounterPosture;
+    partner?: DetailedUnit;
+  }
+): DischargeSoilResult {
+  if (!recipientIsTarget || recipient.sex !== 'F') {
+    return { unit: recipient, partner: opts?.partner, partnerDrip01: 0 };
+  }
   let unit = recipient;
+  let partner = opts?.partner;
+  let partnerDrip01 = 0;
   const elevated = isFeminineArousalElevated(unit, opts?.encounterArousal);
-  const seepOpts = { posture: opts?.posture ?? 'standing' };
+  const seepOpts: CrotchSeepageOpts = {
+    posture: opts?.posture ?? 'standing',
+    partner,
+  };
   for (const d of discharges) {
     const kind = soilKindFromDischarge(d.kind);
     if (!kind) continue;
     if (d.kind === 'semen' || d.kind === 'preEjaculate') {
       if (d.fromId === recipient.id) continue;
-      unit = applyCrotchFluidSeepage(unit, kind, d.volume * 0.85, seepOpts).unit;
+      const r = applyCrotchFluidSeepage(unit, kind, d.volume * 0.85, {
+        ...seepOpts,
+        partner,
+      });
+      unit = r.unit;
+      if (r.partner) partner = r.partner;
+      partnerDrip01 += r.partnerDrip01;
       if (elevated) {
-        unit = applyCrotchFluidSeepage(
-          unit,
-          'arousalFluid',
-          d.volume * 0.28,
-          seepOpts
-        ).unit;
+        const a = applyCrotchFluidSeepage(unit, 'arousalFluid', d.volume * 0.28, {
+          ...seepOpts,
+          partner,
+        });
+        unit = a.unit;
+        if (a.partner) partner = a.partner;
+        partnerDrip01 += a.partnerDrip01;
       }
     } else if (d.fromId === recipient.id) {
-      unit = applyCrotchFluidSeepage(unit, kind, d.volume * 0.55, seepOpts).unit;
+      if (d.kind === 'femaleEjaculate') {
+        // One truth volume → orifice retain + cloth seep.
+        const orificeShare = d.orificeShare ?? T.cycle.femaleClimaxFluid.orificeShare;
+        const clothShare = d.clothShare ?? T.cycle.femaleClimaxFluid.clothShare;
+        const orificeAmt = d.volume * orificeShare;
+        if (orificeAmt > 1e-6) {
+          const prev = unit.lewdStats.dynamic.orificeSlick ?? {};
+          const vagina = addOrificeSlickLayer(
+            prev.vagina,
+            'vaginalSecretion',
+            orificeAmt
+          );
+          unit = setOrificeSlick(unit, { ...prev, vagina });
+        }
+        const clothAmt = d.volume * clothShare;
+        if (clothAmt > 1e-6) {
+          const r = applyCrotchFluidSeepage(unit, kind, clothAmt, {
+            ...seepOpts,
+            partner,
+          });
+          unit = r.unit;
+          if (r.partner) partner = r.partner;
+          partnerDrip01 += r.partnerDrip01;
+        }
+      } else {
+        const r = applyCrotchFluidSeepage(unit, kind, d.volume * 0.55, {
+          ...seepOpts,
+          partner,
+        });
+        unit = r.unit;
+        if (r.partner) partner = r.partner;
+        partnerDrip01 += r.partnerDrip01;
+      }
     }
   }
-  return unit;
+  return { unit, partner, partnerDrip01 };
 }
 
 /** Menstrual blood accrual while mucus is bloody / phase menstrual. */
@@ -600,28 +1354,78 @@ export function accrueArousalWetSpotDrip(
     encounterArousal?: number;
     desireMood01?: number;
     posture?: EncounterPosture;
+    partner?: DetailedUnit;
   }
 ): DetailedUnit {
   if (unit.sex !== 'F' || !(hours > 0)) return unit;
+  // Lust trickle produces fluid (truth) into orifice + cloth share.
+  const trickle = accrueLustSecretionTrickle(unit, hours);
+  unit = trickle.unit;
+  let cloth01 = trickle.cloth01;
+
   const D = T.cycle.arousalDrip;
   const cap = T.cycle.wetnessCap;
   const wet = feltWetnessForUnit(unit, {
     encounterArousal: opts?.encounterArousal,
     desireMood01: opts?.desireMood01,
   });
-  if (!wet) return unit;
-
-  const felt = wet.feltWetness;
-  if (felt < D.soilFromWetnessThreshold) return unit;
-
-  const intensity =
-    (felt - D.soilFromWetnessThreshold) /
-    Math.max(0.01, cap - D.soilFromWetnessThreshold);
-  const amount01 = D.amountPerHourAtCap * intensity * hours;
-  if (amount01 < 0.002) return unit;
-  return applyCrotchFluidSeepage(unit, 'arousalFluid', amount01, {
+  if (wet && wet.feltWetness >= D.soilFromWetnessThreshold) {
+    const intensity =
+      (wet.feltWetness - D.soilFromWetnessThreshold) /
+      Math.max(0.01, cap - D.soilFromWetnessThreshold);
+    cloth01 += D.amountPerHourAtCap * intensity * hours;
+  }
+  if (cloth01 < 0.002) return unit;
+  return applyCrotchFluidSeepage(unit, 'arousalFluid', cloth01, {
     posture: opts?.posture ?? 'standing',
+    partner: opts?.partner,
   }).unit;
+}
+
+/**
+ * Same as accrueArousalWetSpotDrip but also returns partner soil (mounted).
+ */
+export function accrueArousalWetSpotDripWithPartner(
+  unit: DetailedUnit,
+  hours: number,
+  opts?: {
+    encounterArousal?: number;
+    desireMood01?: number;
+    posture?: EncounterPosture;
+    partner?: DetailedUnit;
+  }
+): { unit: DetailedUnit; partner?: DetailedUnit; partnerDrip01: number } {
+  if (unit.sex !== 'F' || !(hours > 0)) {
+    return { unit, partner: opts?.partner, partnerDrip01: 0 };
+  }
+  const trickle = accrueLustSecretionTrickle(unit, hours);
+  unit = trickle.unit;
+  let amount01 = trickle.cloth01;
+
+  const D = T.cycle.arousalDrip;
+  const cap = T.cycle.wetnessCap;
+  const wet = feltWetnessForUnit(unit, {
+    encounterArousal: opts?.encounterArousal,
+    desireMood01: opts?.desireMood01,
+  });
+  if (wet && wet.feltWetness >= D.soilFromWetnessThreshold) {
+    const intensity =
+      (wet.feltWetness - D.soilFromWetnessThreshold) /
+      Math.max(0.01, cap - D.soilFromWetnessThreshold);
+    amount01 += D.amountPerHourAtCap * intensity * hours;
+  }
+  if (amount01 < 0.002) {
+    return { unit, partner: opts?.partner, partnerDrip01: 0 };
+  }
+  const r = applyCrotchFluidSeepage(unit, 'arousalFluid', amount01, {
+    posture: opts?.posture ?? 'standing',
+    partner: opts?.partner,
+  });
+  return {
+    unit: r.unit,
+    partner: r.partner,
+    partnerDrip01: r.partnerDrip01,
+  };
 }
 
 const VAGINAL_SITES: SpermEntrySite[] = [
@@ -637,12 +1441,17 @@ const VAGINAL_SITES: SpermEntrySite[] = [
  */
 export function accrueRetainedSemenLeak(
   unit: DetailedUnit,
-  hours: number
+  hours: number,
+  opts?: { posture?: EncounterPosture; partner?: DetailedUnit }
 ): DetailedUnit {
   if (unit.sex !== 'F' || !(hours > 0)) return unit;
   const cohorts = unit.lewdStats.dynamic.spermCohorts;
   if (!cohorts?.length) return unit;
   const S = T.cycle.clothSeepage;
+  const seepOpts: CrotchSeepageOpts = {
+    posture: opts?.posture ?? 'standing',
+    partner: opts?.partner,
+  };
 
   let vaginalVol = 0;
   let analVol = 0;
@@ -655,12 +1464,12 @@ export function accrueRetainedSemenLeak(
   let next = unit;
   const vaginalLeak = vaginalVol * S.vaginalSemenLeakPerHour * hours;
   if (vaginalLeak >= 0.002) {
-    next = applyCrotchFluidSeepage(next, 'semen', vaginalLeak).unit;
+    next = applyCrotchFluidSeepage(next, 'semen', vaginalLeak, seepOpts).unit;
   }
   // Anal retention leak stub (plug / tropes later — rate only for now).
   const analLeak = analVol * S.analSemenLeakPerHour * hours;
   if (analLeak >= 0.002) {
-    next = applyCrotchFluidSeepage(next, 'semen', analLeak).unit;
+    next = applyCrotchFluidSeepage(next, 'semen', analLeak, seepOpts).unit;
   }
   return next;
 }
@@ -693,18 +1502,41 @@ export function dryUnitAndUnderwearSoil(
   hours: number
 ): DetailedUnit {
   if (!(hours > 0)) return unit;
-  const crotchSoil = drySoilBag(unit.lewdStats.dynamic.crotchSoil, hours);
   for (const slot of CROTCH_SEEPAGE_SLOTS) {
     const item = getEquippedItem(unit, slot);
     if (item && (item.lewdStats.soiled || item.lewdStats.soiledByRegion)) {
       dryItemRegions(item, hours);
     }
   }
+  // Skin film does not soak in — light surface evaporate only (no wet→dry cloth soak).
+  const map = unit.lewdStats.dynamic.skinFluidByRegion;
+  let skinFluidByRegion = map ? { ...map } : undefined;
+  let crotchSoil = drySoilBag(unit.lewdStats.dynamic.crotchSoil, hours);
+  if (skinFluidByRegion) {
+    const evaporate = 1 - Math.exp(-0.45 * hours);
+    for (const region of SKIN_DRIP_ORDER) {
+      const bag = normalizeSoilBag(skinFluidByRegion[region]);
+      const nextBag = emptySoilBag();
+      for (const kind of SOIL_KINDS) {
+        const lost = bag[kind].wet * evaporate;
+        nextBag[kind] = {
+          wet: clamp100(bag[kind].wet - lost),
+          dry: bag[kind].dry, // faint residue only if already set
+        };
+      }
+      skinFluidByRegion[region] = nextBag;
+    }
+    crotchSoil = normalizeSoilBag(skinFluidByRegion.crotch);
+  }
   return {
     ...unit,
     lewdStats: {
       ...unit.lewdStats,
-      dynamic: { ...unit.lewdStats.dynamic, crotchSoil },
+      dynamic: {
+        ...unit.lewdStats.dynamic,
+        crotchSoil,
+        ...(skinFluidByRegion ? { skinFluidByRegion } : {}),
+      },
     },
   };
 }
@@ -744,6 +1576,12 @@ export function launderCrotchLayers(unit: DetailedUnit): DetailedUnit {
       dynamic: {
         ...unit.lewdStats.dynamic,
         crotchSoil: clearSoilBag(),
+        skinFluidByRegion: undefined,
+        skinFilmFeelByRegion: undefined,
+        soilScoreSnap: undefined,
+        soilGrowthRate: undefined,
+        analVergeWet: undefined,
+        orificeSlick: undefined,
       },
     },
   };
@@ -757,6 +1595,12 @@ export function batheClearSkinSoil(unit: DetailedUnit): DetailedUnit {
       dynamic: {
         ...unit.lewdStats.dynamic,
         crotchSoil: clearSoilBag(),
+        skinFluidByRegion: undefined,
+        skinFilmFeelByRegion: undefined,
+        soilScoreSnap: undefined,
+        soilGrowthRate: undefined,
+        analVergeWet: undefined,
+        orificeSlick: undefined,
       },
     },
   };
@@ -764,7 +1608,29 @@ export function batheClearSkinSoil(unit: DetailedUnit): DetailedUnit {
 
 export interface RegionWetCue {
   region: ClothSoilRegion;
+  /** Legacy WetPatchSize band for thresholds. Prefer label. */
   size: WetPatchSize;
+  /** Accumulation phrase: pinprick/coin… or hint of discoloration… */
+  label: string;
+  /** Growth-rate flavor for narrative. */
+  rate: WetGrowthRate;
+  rateLabel: string;
+  /** Optional narrative combining accumulation + rate. */
+  narrative: string;
+  score: number;
+}
+
+export interface SkinFilmCue {
+  region: SkinDripRegion;
+  size: WetPatchSize;
+  feel: SkinFilmFeel;
+  /** Accumulation / form phrase for short cues. */
+  label: string;
+  rate: WetGrowthRate;
+  rateLabel: string;
+  /** Reach range label when running (thigh or seat). */
+  rangeLabel?: string;
+  narrative: string;
   score: number;
 }
 
@@ -777,12 +1643,32 @@ export interface SoilCues {
   outerSeep: boolean;
   /** Legwear region patch sizes (crotch / seat / innerThigh). */
   legRegions: RegionWetCue[];
+  /** Bare-skin surface film trail (does not soak in). */
+  skinRegions: SkinFilmCue[];
+  /** Combined narrative flavor lines (cloth stains + skin runs). */
+  narratives: string[];
+  /**
+   * Lasting anal-verge pool has meaningful wetness (prefer over transient seat range).
+   * Hook for future multi-lubricant orifice slick — not a comfort gate yet.
+   */
+  analVergeWet: boolean;
+  /** Soft 0–1 from verge pool score vs vergeCapacity. */
+  analVergeWet01: number;
+  /** Short cue / narrative for the verge pool. */
+  analVergeLabel: string | null;
+  /** Anus orificeSlick blend (fed by verge dwell for now). */
+  anusSlick: OrificeSlickReport | null;
+  /** Vagina orificeSlick blend (arousal-gated secretion + climax). */
+  vaginaSlick: OrificeSlickReport | null;
   summary: string;
   /** Quantified crotch dampness + flavor (arousal / semen). */
   wetness: UnderwearWetnessReport;
 }
 
-function legRegionCues(leg: Item | undefined): RegionWetCue[] {
+function legRegionCues(
+  unit: DetailedUnit,
+  leg: Item | undefined
+): RegionWetCue[] {
   if (!leg) return [];
   const regions: ClothSoilRegion[] = ['crotch', 'seat', 'innerThigh'];
   const out: RegionWetCue[] = [];
@@ -790,9 +1676,110 @@ function legRegionCues(leg: Item | undefined): RegionWetCue[] {
     const score = regionSoilScore(leg, region);
     const size = sizeFromWetScore(score);
     if (size === 'none') continue;
-    out.push({ region, size, score });
+    const rate = growthRateForKey(unit, clothSnapKey('leg', region));
+    const where =
+      region === 'seat'
+        ? 'seat'
+        : region === 'innerThigh'
+          ? 'inner thigh'
+          : 'crotch';
+    const label = legRegionWetLabel(region, score);
+    const narrative =
+      region === 'crotch'
+        ? ''
+        : narrateClothStain({
+            where,
+            score,
+            rate,
+            garmentName: leg.name,
+          });
+    out.push({
+      region,
+      size,
+      label,
+      rate,
+      rateLabel: growthRateLabel(rate),
+      narrative,
+      score,
+    });
   }
   return out;
+}
+
+function skinFilmCues(
+  unit: DetailedUnit,
+  posture: EncounterPosture
+): SkinFilmCue[] {
+  const out: SkinFilmCue[] = [];
+  const contents = fluidContentsWord(unit);
+  const thighScore = skinFilmWetPoints(getSkinRegionBag(unit, 'thighInner'));
+  const calfScore = skinFilmWetPoints(getSkinRegionBag(unit, 'calf'));
+  const seatScore = skinFilmWetPoints(getSkinRegionBag(unit, 'seat'));
+  const thighRange = bareThighRangeFromRegions(
+    { thighInner: thighScore, calf: calfScore },
+    posture
+  );
+  const seatRange = bareSeatRangeFromScore(seatScore);
+
+  let wroteThighNarrative = false;
+
+  for (const region of SKIN_DRIP_ORDER) {
+    const bag = getSkinRegionBag(unit, region);
+    const score = skinFilmWetPoints(bag);
+    const size = sizeFromWetScore(score);
+    if (size === 'none') continue;
+    const feel = getSkinRegionFeel(unit, region);
+    const rate = growthRateForKey(unit, skinSnapKey(region));
+    const label = skinRegionWetLabel(feel, score);
+    let rangeLabel: string | undefined;
+    let narrative = '';
+
+    if (feel === 'tacky') {
+      narrative = `${label} on ${skinRegionWhere(region)}`;
+    } else if (region === 'seat') {
+      rangeLabel =
+        seatRange === 'none' ? undefined : bareSeatRangeLabel(seatRange);
+      narrative = narrateBareSeatRun({
+        form: bareSkinFormFromScore(seatScore),
+        range: seatRange,
+        rate,
+        contents,
+      });
+    } else if (region === 'thighInner' || region === 'calf') {
+      if (!wroteThighNarrative && thighRange !== 'none') {
+        rangeLabel = bareSkinRangeLabel(thighRange);
+        narrative = narrateBareThighRun({
+          form: bareSkinFormFromScore(Math.max(thighScore, calfScore)),
+          range: thighRange,
+          rate,
+          contents,
+        });
+        wroteThighNarrative = true;
+      }
+    } else {
+      narrative = `${label} at the crotch`;
+    }
+
+    out.push({
+      region,
+      size,
+      feel,
+      label,
+      rate,
+      rateLabel: growthRateLabel(rate),
+      rangeLabel,
+      narrative,
+      score,
+    });
+  }
+  return out;
+}
+
+function skinRegionWhere(region: SkinDripRegion): string {
+  if (region === 'thighInner') return 'inner thigh';
+  if (region === 'calf') return 'calf';
+  if (region === 'seat') return 'seat';
+  return 'crotch';
 }
 
 export function deriveSoilCues(
@@ -809,13 +1796,17 @@ export function deriveSoilCues(
   );
   const skin = normalizeSoilBag(unit.lewdStats.dynamic.crotchSoil);
   const wetness = describeUnderwearWetness(unit);
-  const legRegions = legRegionCues(leg);
+  const posture = opts?.posture ?? 'standing';
+  const legRegions = legRegionCues(unit, leg);
+  const skinRegions = skinFilmCues(unit, posture);
 
   const pantySemen = soilIntensity(cloth.semen);
   const pantyBlood = soilIntensity(cloth.blood);
   const pantyDischarge =
     soilIntensity(cloth.vaginalDischarge) + soilIntensity(cloth.arousalFluid);
-  const skinTotal = totalSoilScore(skin);
+  const skinTotal =
+    totalSoilScore(skin) +
+    skinRegions.reduce((sum, r) => sum + r.score, 0);
   const clothWet =
     cloth.semen.wet +
     cloth.blood.wet +
@@ -848,7 +1839,8 @@ export function deriveSoilCues(
     clothWet >= 20 ||
     pantyBlood >= 25 ||
     pantySemen >= 22 ||
-    outerSeep;
+    outerSeep ||
+    skinRegions.length > 0;
 
   const bits: string[] = [];
   if (soiledPeriodCloth) bits.push('period cloth soiled');
@@ -865,15 +1857,95 @@ export function deriveSoilCues(
         : r.region === 'innerThigh'
           ? 'inner thigh'
           : 'crotch';
-    bits.push(`${leg?.name ?? 'leg'} ${where} ${r.size}`);
+    const rateBit =
+      r.region !== 'crotch' && r.rate !== 'clearlyEstablished'
+        ? ` (${r.rateLabel})`
+        : r.region !== 'crotch' && r.rate === 'clearlyEstablished'
+          ? ' (established)'
+          : '';
+    bits.push(`${leg?.name ?? 'leg'} ${where} ${r.label}${rateBit}`);
   }
   if (outerSeep && legRegions.length === 0) {
     bits.push(leg ? `seeped through ${leg.name}` : 'outer seep');
   }
-  if (opts?.posture && opts.posture !== 'standing') {
-    bits.push(opts.posture);
+  for (const r of skinRegions) {
+    if (r.feel === 'tacky') {
+      bits.push(`skin ${skinRegionWhere(r.region)} smear ${r.label}`);
+    } else if (r.rangeLabel) {
+      bits.push(`skin ${r.label} ${r.rangeLabel}`);
+    } else if (r.narrative) {
+      // thigh/calf companion rows without their own range — skip duplicate
+      if (r.region === 'calf' && !r.rangeLabel) continue;
+      bits.push(`skin ${skinRegionWhere(r.region)} flow ${r.label}`);
+    } else if (r.region === 'crotch') {
+      bits.push(`skin crotch flow ${r.label}`);
+    }
+  }
+  if (posture !== 'standing') {
+    bits.push(posture);
   }
   if (wantsBath) bits.push('wants a bath');
+
+  const narratives = [
+    ...legRegions.map((r) => r.narrative).filter(Boolean),
+    ...skinRegions.map((r) => r.narrative).filter(Boolean),
+  ];
+
+  const vergeScore = analVergeWetPoints(unit);
+  const vergeCap = T.cycle.clothSeepage.skinDrip.vergeCapacity;
+  const analVergeWet01 = Math.max(
+    0,
+    Math.min(1, vergeScore / Math.max(1, vergeCap))
+  );
+  const analVergeWet = vergeScore >= 3.5;
+  const vergeRate = growthRateForKey(unit, 'analVerge');
+  let analVergeLabel: string | null = null;
+  if (analVergeWet) {
+    const form = bareSkinFormFromScore(vergeScore);
+    const formLabel = form === 'none' ? 'slick' : bareSkinFormLabel(form);
+    if (vergeRate === 'clearlyEstablished') {
+      analVergeLabel = `a clearly established ${formLabel} at the anal verge`;
+    } else {
+      const pace =
+        vergeRate === 'slowlyCreeping'
+          ? 'slowly'
+          : vergeRate === 'swiftlyBlossoming'
+            ? 'swiftly'
+            : 'steadily';
+      analVergeLabel = `a ${formLabel} of wetness ${pace} wetting the anal verge`;
+    }
+    bits.push(`verge ${formLabel}`);
+    narratives.push(analVergeLabel);
+  } else {
+    // Transient seat-range only if pool empty but trail just kissed the verge.
+    const seatScore = skinFilmWetPoints(getSkinRegionBag(unit, 'seat'));
+    const seatRange = bareSeatRangeFromScore(seatScore);
+    if (seatTrailWetsAnalVerge(seatRange)) {
+      analVergeLabel = 'seat trail at the anal verge (no dwell yet)';
+    }
+  }
+
+  const anusSlickReport = describeOrificeSlick(
+    'anus',
+    unit.lewdStats.dynamic.orificeSlick?.anus
+  );
+  const anusSlick =
+    anusSlickReport.wet01 >= 0.02 ? anusSlickReport : null;
+  if (anusSlick) {
+    bits.push(`anus slick ${anusSlick.label.replace(/^anus\s+/, '')}`);
+    if (anusSlick.flavor) narratives.push(anusSlick.flavor);
+  }
+
+  const vaginaSlickReport = describeOrificeSlick(
+    'vagina',
+    unit.lewdStats.dynamic.orificeSlick?.vagina
+  );
+  const vaginaSlick =
+    vaginaSlickReport.wet01 >= 0.02 ? vaginaSlickReport : null;
+  if (vaginaSlick) {
+    bits.push(`vagina slick ${vaginaSlick.label.replace(/^vagina\s+/, '')}`);
+    if (vaginaSlick.flavor) narratives.push(vaginaSlick.flavor);
+  }
 
   return {
     soiledPanty,
@@ -882,6 +1954,13 @@ export function deriveSoilCues(
     wantsBath,
     outerSeep,
     legRegions,
+    skinRegions,
+    narratives,
+    analVergeWet,
+    analVergeWet01,
+    analVergeLabel,
+    anusSlick,
+    vaginaSlick,
     summary: bits.length ? bits.join(' · ') : 'clean',
     wetness,
   };
@@ -892,24 +1971,49 @@ export interface AdvanceFluidSoilOpts {
   encounterArousal?: number;
   /** Reserved mild desire / mood 0–1 (arousal-wetness hook). */
   desireMood01?: number;
-  /** Standing vs seated/lying cloth routing. */
+  /** Standing vs seated/lying / handsKnees / sideLying / mounted cloth routing. */
   posture?: EncounterPosture;
+  /** Partner for mounted/cowgirl overflow (Lab). */
+  partner?: DetailedUnit;
 }
 
-/** Pass Time: dry soil + menses + arousal drip + retained semen leak. */
+export interface AdvanceFluidSoilResult {
+  unit: DetailedUnit;
+  partner?: DetailedUnit;
+  partnerDrip01: number;
+}
+
+/** Pass Time: dry soil + menses + arousal drip + retained semen leak + skin film runoff. */
 export function advanceFluidSoil(
   unit: DetailedUnit,
   hours: number,
   opts?: AdvanceFluidSoilOpts
 ): DetailedUnit {
-  if (!(hours > 0)) return unit;
+  return advanceFluidSoilDetailed(unit, hours, opts).unit;
+}
+
+/** Same as advanceFluidSoil, also returns partner soil when mounted. */
+export function advanceFluidSoilDetailed(
+  unit: DetailedUnit,
+  hours: number,
+  opts?: AdvanceFluidSoilOpts
+): AdvanceFluidSoilResult {
+  if (!(hours > 0)) {
+    return { unit, partner: opts?.partner, partnerDrip01: 0 };
+  }
+  const posture = opts?.posture ?? 'standing';
   let next = dryUnitAndUnderwearSoil(unit, hours);
   next = accrueMenstrualBlood(next, hours);
-  next = accrueArousalWetSpotDrip(next, hours, {
+  const drip = accrueArousalWetSpotDripWithPartner(next, hours, {
     encounterArousal: opts?.encounterArousal,
     desireMood01: opts?.desireMood01,
-    posture: opts?.posture,
+    posture,
+    partner: opts?.partner,
   });
-  next = accrueRetainedSemenLeak(next, hours);
-  return next;
+  next = drip.unit;
+  let partner = drip.partner;
+  const partnerDrip01 = drip.partnerDrip01;
+  next = accrueRetainedSemenLeak(next, hours, { posture, partner });
+  next = advanceSkinSurfaceDrip(next, hours, posture);
+  return { unit: next, partner, partnerDrip01 };
 }

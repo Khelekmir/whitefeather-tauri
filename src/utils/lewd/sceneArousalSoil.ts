@@ -17,9 +17,10 @@ export interface SceneArousalSoilInput {
 }
 
 export interface SceneArousalSoilResult {
-  /** Total arousalFluid amount01 this beat (base + genital bonus). */
+  /** Total arousalFluid amount01 this beat (base + genital bonus × hold). */
   amount01: number;
   baseAmount01: number;
+  /** Genital bonus amount01 this beat (rate × holdSeconds). */
   genitalBonus01: number;
   /** amount01 / sec (for flavor gates). */
   ratePerSec: number;
@@ -60,7 +61,7 @@ export function lubricationFlavorLabel(flavor: LubricationSoilFlavor): string {
 }
 
 /**
- * Per-beat arousal → cloth soil amounts (kiss/fondle path + modest genital bonus).
+ * Per-beat arousal → cloth soil amounts (kiss/fondle path + modest genital rate × hold).
  */
 export function computeSceneArousalSoil(
   input: SceneArousalSoilInput
@@ -94,10 +95,10 @@ export function computeSceneArousalSoil(
     input.genitalPlay &&
     felt >= T.cycle.ambientWetnessThreshold
   ) {
-    genitalBonus01 = Math.min(
-      S.genitalBonusCap,
-      S.genitalBonusBase * felt
-    );
+    // Per-second rate × hold — Lab 1s ticks and authored 8s beats stay linear.
+    const genitalRate =
+      Math.min(S.genitalBonusCap, S.genitalBonusBase * felt);
+    genitalBonus01 = genitalRate * hold;
   }
 
   const amount01 = baseAmount01 + genitalBonus01;

@@ -130,14 +130,46 @@ export function calcHormones(hour: number, lengthDays: number): HormoneSnapshot 
   };
 }
 
-/** Null for non-cycling (male) cast; snapshot for females. */
+/**
+ * Scale a hormone curve's excursion above nadir (=1) by a character mult.
+ * Mult 1.10 → +10% peak height; menstrual floor stays ~1.
+ */
+export function applyHormoneSwing(value: number, mult: number | undefined): number {
+  const m = mult == null || !(mult > 0) ? 1 : mult;
+  return round3(1 + (Math.max(0, value) - 1) * m);
+}
+
+export type HormoneSwing = {
+  estrogen?: number;
+  testosterone?: number;
+  progesterone?: number;
+};
+
+/** Apply optional per-character swing to a raw calcHormones snapshot. */
+export function withHormoneSwing(
+  raw: HormoneSnapshot,
+  swing?: HormoneSwing | null
+): HormoneSnapshot {
+  if (!swing) return raw;
+  return {
+    ...raw,
+    estrogen: applyHormoneSwing(raw.estrogen, swing.estrogen),
+    testosterone: applyHormoneSwing(raw.testosterone, swing.testosterone),
+    progesterone: applyHormoneSwing(raw.progesterone, swing.progesterone),
+  };
+}
+
+/** Null for non-cycling (male) cast; snapshot for females (with hormoneSwing). */
 export function hormonesForUnit(
   unit: Pick<DetailedUnit, 'sex' | 'lewdStats'>
 ): HormoneSnapshot | null {
   if (unit.sex !== 'F') return null;
-  return calcHormones(
-    unit.lewdStats.dynamic.ovulationCycleCurrent ?? 0,
-    unit.lewdStats.static.ovulationCycleLength || 28
+  return withHormoneSwing(
+    calcHormones(
+      unit.lewdStats.dynamic.ovulationCycleCurrent ?? 0,
+      unit.lewdStats.static.ovulationCycleLength || 28
+    ),
+    unit.lewdStats.static.hormoneSwing
   );
 }
 
@@ -151,23 +183,25 @@ export function lustModFromPhase(phase: CyclePhase): number {
     case 'Ovulation':
       return 1.28;
     case 'Luteal':
-      return 0.86;
+      // Lower so high-P luteal stacks harder with hormone damp.
+      return 0.78;
   }
 }
 
 /**
  * Fine lust mod from hormone ratios (blended with phase table).
- * Testosterone drives urge; progesterone dampens; estrogen supports readiness.
+ * Lane: progesterone lowers lust setpoint; mild E support; T stays off
+ * (T lowers arousal gates, not standing lust).
+ * E/P use ln — both peak far above 1 (E~20, P~25).
  */
 export function lustModFromHormones(h: HormoneSnapshot): number {
   const phaseMod = lustModFromPhase(h.phase);
-  const hormoneMod =
-    0.82 +
-    0.22 * (h.testosterone - 1) +
-    0.06 * Math.log(Math.max(1, h.estrogen)) -
-    0.05 * Math.log(Math.max(1, h.progesterone));
+  const lnE = Math.log(Math.max(1, h.estrogen));
+  const lnP = Math.log(Math.max(1, h.progesterone));
+  const hormoneMod = 0.9 + 0.04 * lnE - 0.16 * lnP;
   const blended = phaseMod * 0.55 + hormoneMod * 0.45;
-  return Math.max(0.55, Math.min(1.45, blended));
+  // Floor 0.48 so stacked luteal (low E / high P / low T elsewhere) can bite.
+  return Math.max(0.48, Math.min(1.45, blended));
 }
 
 /** Raw appetite (0–100) from static libido alone — before cycle / temperament. */
@@ -233,7 +267,10 @@ export function advanceFemalePhysiology(
   const nextHour = pregnant
     ? prevHour
     : advanceCycleHour(prevHour, length, hours);
-  const hormones = calcHormones(nextHour, length);
+  const hormones = withHormoneSwing(
+    calcHormones(nextHour, length),
+    unit.lewdStats.static.hormoneSwing
+  );
 
   const next: DetailedUnit = {
     ...unit,

@@ -28,10 +28,12 @@ import {
   type ResolvedChannel,
 } from './lewdChannels';
 import { LEWD_TUNING as T } from './lewdTuning';
+import { blendOrificeSlick } from './orificeSlick';
 import { bandOutcome, outcomeLabel, type LewdOutcomeBand } from './outcomes';
 import { hormonesForUnit } from './ovulationCycle';
 import {
-  computeSceneArousalSoil,
+  lubricationFlavorFromRate,
+  lubricationFlavorLabel,
   type LubricationSoilFlavor,
 } from './sceneArousalSoil';
 import {
@@ -40,6 +42,7 @@ import {
 } from './painPsych';
 import { evaluateProactivePush } from './proactiveGiver';
 import { getEdge } from '../social/relationshipState';
+import { accrueVaginalSecretion } from './vaginalSecretion';
 
 export type { LewdChannel } from './lewdChannels';
 
@@ -97,6 +100,10 @@ export interface LewdMoveResult {
   fertileCrest01: number;
   /** Recipient after cloth/skin soil writers (caller should adopt). */
   recipientAfterSoil: DetailedUnit;
+  /** Partner after mounted/cowgirl overflow soil (when posture is mounted). */
+  proactiveAfterSoil?: DetailedUnit;
+  /** Amount01 diverted onto partner crotch cloth this beat (mounted stub). */
+  partnerDrip01?: number;
   conceptionNote: string | null;
   band: LewdOutcomeBand;
   bandLabel: string;
@@ -191,7 +198,11 @@ export function resolveLewdChannels(input: LewdChannelsInput): LewdMoveResult {
     discomfort: Math.max(seededPhys, seededPsych),
   };
 
-  const allowGains = merge.intimacyAllowed && !merge.arousalHardBlocked;
+  // Hard-unready rebuffs the beat. Intimacy objection keeps channel physio
+  // (body-commit) and any willing-channel psych soft-OR from merge.
+  const allowPsychGains = !merge.arousalHardBlocked;
+  const allowPhysioGains =
+    !merge.arousalHardBlocked && recvPhysio > 0.01;
 
   const recvHormones = hormonesForUnit(recipient);
   const recvBodily = recvHormones
@@ -217,10 +228,10 @@ export function resolveLewdChannels(input: LewdChannelsInput): LewdMoveResult {
     arousal: encounter.arousal,
     recipient,
     softUnready: merge.arousalSoftUnready,
-    hardUnready: merge.arousalHardBlocked,
+    hardUnready: merge.arousalHardBlocked || merge.violation,
   });
   const painPhysPerSec =
-    allowGains && merge.pain > 0
+    allowPhysioGains && merge.pain > 0
       ? painPhysRateFromAction({
           pain: merge.pain,
           intensity: merge.painIntensity || 5,
@@ -229,31 +240,70 @@ export function resolveLewdChannels(input: LewdChannelsInput): LewdMoveResult {
       : 0;
 
   const next = updateEncounterArousal(seededWithCycle, {
-    psychQuality: allowGains ? recvPsych : 0,
-    physioQuality: allowGains ? recvPhysio : 0,
+    psychQuality: allowPsychGains ? recvPsych : 0,
+    physioQuality: allowPhysioGains ? recvPhysio : 0,
     erogenous: merge.erogenous,
     deltaT: Math.max(0.5, holdSeconds),
     sex: recipient.sex,
-    overstep: allowGains && merge.overstep,
+    overstep: allowPhysioGains && merge.overstep,
     overstepSeverity: merge.overstepSeverity,
     violation: merge.violation || merge.arousalHardBlocked,
     painPhysPerSec,
     painPsychShare,
-    overstepPsychBoost: merge.arousalSoftUnready ? 1.2 : 1,
+    overstepPsychBoost:
+      merge.arousalSoftUnready || merge.violation ? 1.25 : 1,
+    estrogen: recvHormones?.estrogen,
+    testosterone: recvHormones?.testosterone,
+    hypersensStimIntensity: allowPhysioGains
+      ? merge.hypersensStimIntensity
+      : 0,
   });
 
   const genitalPlay = channels.some((ch) =>
     isCycleSensitiveTarget(ch.targetPart)
   );
-  // Felt slick after this beat's arousal update — kissing that warms her can dampen cloth.
+  // Wetness follows body contact / arousal, not the intimacy objection.
+  const beatQuality01 = Math.max(
+    0,
+    Math.min(
+      1,
+      allowPsychGains
+        ? (recvPsych + recvPhysio) / 2
+        : recvPhysio * 0.85
+    )
+  );
+
+  // Fluid truth: arousal-gated secretion → orifice retain + cloth weep.
+  let workingRecipient = recipient;
+  let secretionCloth01 = 0;
+  let secretionRatePerSec = 0;
+  if (allowPhysioGains && recipient.sex === 'F' && recvBodily) {
+    const secretion = accrueVaginalSecretion({
+      unit: recipient,
+      encounterArousal: next.arousal,
+      holdSeconds,
+      genitalPlay,
+      bodily: recvBodily,
+      beatQuality01,
+    });
+    workingRecipient = secretion.unit;
+    secretionCloth01 = secretion.cloth01;
+    secretionRatePerSec = secretion.ratePerSec;
+  }
+
+  const orificeWet01 = blendOrificeSlick(
+    workingRecipient.lewdStats.dynamic.orificeSlick?.vagina
+  ).wet01;
   const recvFeltWet =
     recipient.sex === 'F' && recvBodily
       ? feltWetness(recvBodily.wetness01, {
-          lust: recipient.lewdStats.dynamic.lust ?? 0,
-          encounterArousal: next.arousal,
+          lust: workingRecipient.lewdStats.dynamic.lust ?? 0,
+          orificeWet01,
+          lubricationRate01: recvBodily.lubricationRate01,
         })
       : null;
 
+  const proactiveHormones = hormonesForUnit(proactive);
   const nextProactive = updateEncounterArousal(proactiveEncounter, {
     psychQuality: giver.psychQuality,
     physioQuality: giver.physioQuality,
@@ -262,47 +312,74 @@ export function resolveLewdChannels(input: LewdChannelsInput): LewdMoveResult {
     sex: proactive.sex,
     overstep: false,
     violation: giver.pushReadiness === 'hardUnready' && merge.intimacyRequired > 40,
+    estrogen: proactiveHormones?.estrogen,
+    testosterone: proactiveHormones?.testosterone,
   });
 
-  const beatQuality01 = Math.max(
-    0,
-    Math.min(1, (recvPsych + recvPhysio) / 2)
-  );
-  const sceneSoil =
-    allowGains && recvFeltWet
-      ? computeSceneArousalSoil({
-          feltWetness: recvFeltWet.feltWetness,
-          holdSeconds,
-          beatQuality01,
-          genitalPlay,
-        })
-      : null;
-
-  const ambientLubrication = !!(sceneSoil && sceneSoil.amount01 >= 0.002);
-  const lubricationFlavor = sceneSoil?.flavor ?? 'none';
-  const lubricationNote = sceneSoil?.note ?? null;
+  const lubricationFlavor: LubricationSoilFlavor =
+    secretionCloth01 >= 0.002 || secretionRatePerSec >= 0.0006
+      ? lubricationFlavorFromRate(
+          Math.max(secretionRatePerSec, secretionCloth01 / Math.max(0.5, holdSeconds))
+        )
+      : 'none';
+  const word = lubricationFlavorLabel(lubricationFlavor);
+  const feltForNote = recvFeltWet?.feltWetness ?? 0;
+  const lubricationNote =
+    lubricationFlavor === 'none'
+      ? null
+      : genitalPlay && feltForNote >= T.cycle.ambientWetnessThreshold
+        ? `${word} · genital flush`
+        : `${word} · cloth`;
+  const ambientLubrication = lubricationFlavor !== 'none' && secretionCloth01 >= 0.002;
 
   const discharges: FluidDischargeEvent[] = [];
-  if (ambientLubrication && sceneSoil && recipient.sex === 'F') {
+  if (ambientLubrication && recipient.sex === 'F') {
     discharges.push({
       fromId: recipient.id,
       fromSex: recipient.sex,
       kind: 'lubricationSurge',
-      // Soil path applies volume×0.55 — pre-scale so cloth gets sceneSoil.amount01.
-      volume: sceneSoil.amount01 / 0.55,
+      // Soil path applies volume×0.55 — pre-scale so cloth gets secretionCloth01.
+      volume: secretionCloth01 / 0.55,
       climaxIndex: next.climaxCount,
       note: lubricationNote ?? recvBodily?.blurb ?? 'arousal slick',
     });
   }
   if (next.climaxed) {
+    const tipMods = recipient.lewdStats.static.climaxTipMods;
+    let characterVolumeMult = 1;
+    let tipModLabel: string | undefined;
+    if (tipMods?.tipTargetIncludes?.length) {
+      const hit = tipMods.tipTargetIncludes.some((sub) =>
+        channels.some((ch) => ch.targetPart.toLowerCase().includes(sub.toLowerCase()))
+      );
+      if (hit) {
+        characterVolumeMult = tipMods.volumeMult ?? 1;
+        tipModLabel = tipMods.label;
+      }
+    }
     discharges.push(
       dischargeOnClimax({
         unitId: recipient.id,
         sex: recipient.sex,
         climaxCountAfter: next.climaxCount,
         role: 'recipient',
+        female:
+          recipient.sex === 'F'
+            ? {
+                edgeAtClimax: next.edgeAtClimax,
+                arousalAtClimax: next.arousalAtClimax,
+                climaxCountAfter: next.climaxCount,
+                lubricationRate01: recvBodily?.lubricationRate01 ?? 0.7,
+                orificeWet01,
+                characterVolumeMult,
+              }
+            : undefined,
       })
     );
+    if (tipModLabel) {
+      const last = discharges[discharges.length - 1]!;
+      last.note = `${last.note} · ${tipModLabel}`;
+    }
   }
   const depositSite = inferSpermEntrySite(channels.map((c) => c.targetPart));
   if (nextProactive.climaxed) {
@@ -313,6 +390,21 @@ export function resolveLewdChannels(input: LewdChannelsInput): LewdMoveResult {
         climaxCountAfter: nextProactive.climaxCount,
         role: 'proactive',
         site: proactive.sex === 'M' ? depositSite : undefined,
+        female:
+          proactive.sex === 'F' && proactiveHormones
+            ? {
+                edgeAtClimax: nextProactive.edgeAtClimax,
+                arousalAtClimax: nextProactive.arousalAtClimax,
+                climaxCountAfter: nextProactive.climaxCount,
+                lubricationRate01: bodilyStateFromHormones(
+                  proactiveHormones,
+                  proactive.lewdStats.static.ovulationCycleLength || 28
+                ).lubricationRate01,
+                orificeWet01: blendOrificeSlick(
+                  proactive.lewdStats.dynamic.orificeSlick?.vagina
+                ).wet01,
+              }
+            : undefined,
       })
     );
   }
@@ -334,15 +426,19 @@ export function resolveLewdChannels(input: LewdChannelsInput): LewdMoveResult {
       ? ''
       : ` · push ${giver.pushReadiness}`;
 
-  let recipientAfterSoil = applyDischargesToRecipientSoil(
-    recipient,
+  const soilResult = applyDischargesToRecipientSoil(
+    workingRecipient,
     discharges,
     true,
     {
       encounterArousal: next.arousal,
       posture: encounter.posture ?? 'standing',
+      partner: proactive,
     }
   );
+  let recipientAfterSoil = soilResult.unit;
+  const proactiveAfterSoil = soilResult.partner;
+  const partnerDrip01 = soilResult.partnerDrip01;
   recipientAfterSoil = applySemenDischargesToReproduction(
     recipientAfterSoil,
     discharges,
@@ -370,6 +466,8 @@ export function resolveLewdChannels(input: LewdChannelsInput): LewdMoveResult {
       climaxCount: next.climaxCount,
       receptivity: next.receptivity,
       refractorySecondsRemaining: next.refractorySecondsRemaining,
+      orgasmSecondsRemaining: next.orgasmSecondsRemaining ?? 0,
+      posture: next.posture ?? encounter.posture ?? 'standing',
     },
     proactiveEncounter: {
       arousal: nextProactive.arousal,
@@ -380,6 +478,8 @@ export function resolveLewdChannels(input: LewdChannelsInput): LewdMoveResult {
       climaxCount: nextProactive.climaxCount,
       receptivity: nextProactive.receptivity,
       refractorySecondsRemaining: nextProactive.refractorySecondsRemaining,
+      orgasmSecondsRemaining: nextProactive.orgasmSecondsRemaining ?? 0,
+      posture: nextProactive.posture ?? proactiveEncounter.posture ?? 'standing',
     },
     climaxed: next.climaxed,
     proactiveClimaxed: nextProactive.climaxed,
@@ -392,6 +492,8 @@ export function resolveLewdChannels(input: LewdChannelsInput): LewdMoveResult {
     bodilyBlurb: recvBodily?.blurb ?? null,
     fertileCrest01: recvBodily?.fertileCrest01 ?? 0,
     recipientAfterSoil,
+    proactiveAfterSoil,
+    partnerDrip01,
     conceptionNote: reproBeat.conceived ? reproBeat.conceptionNote : null,
     band,
     bandLabel: outcomeLabel(band),

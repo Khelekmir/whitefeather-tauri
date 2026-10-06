@@ -1,5 +1,6 @@
 import type { Unit as DetailedUnit } from '../../types/characters';
 import { LEWD_TUNING as T } from './lewdTuning';
+import { blendOrificeSlick } from './orificeSlick';
 import {
   fertileCrest01,
   hormonesForUnit,
@@ -10,10 +11,12 @@ import {
  * Derived cervical-mucus / wetness / genital-sensitivity state.
  * Ported day-bands from Coding_Notes/.../cycle/discharge.md — not a durable meter.
  *
- * Felt wetness contract:
- * - readinessWetness (1.0) = penetration-ready lubrication
- * - values above 1.0 (up to wetnessCap) = oversaturation → heavier drip / seepage
- * - clothes may damp below readiness; 1.0 is not the soil gate
+ * Felt wetness contract (rate → accumulation → state):
+ * - cycle ambient wetness01 = floor bias ("naturally slick today")
+ * - lubricationRate01 = secretion rate mult while aroused (not readiness)
+ * - orificeSlick.vagina = accumulated fluid (truth)
+ * - felt = floor (+ lust nudge) + orifice map → readiness state
+ * - readinessWetness (1.0) = penetration-ready; oversat above → heavier weep
  *
  * Later: lubrication gates vaginal/anal penetration comfort (size × intensity).
  */
@@ -28,10 +31,15 @@ export type MucusKind =
 export interface CycleBodilyState {
   mucusKind: MucusKind;
   /**
-   * Cycle-only ambient lubrication (lowered so lust/arousal have headroom).
-   * Peak ovulation alone stays below readiness.
+   * Cycle-only ambient lubrication floor.
+   * Peak ovulation alone stays below readiness so play still matters.
    */
   wetness01: number;
+  /**
+   * Secretion rate mult from mucus / crest / estrogen (not a meter).
+   * Multiplies arousal-gated vaginal secretion.
+   */
+  lubricationRate01: number;
   /** Runtime mult for genital/vulvic target sensitivity. */
   genitalSensMult: number;
   /** 0–1 fertile crest (shared with stim / impregnation). */
@@ -39,31 +47,43 @@ export interface CycleBodilyState {
   blurb: string;
 }
 
-/** Optional arousal / mood inputs layered onto cycle ambient wetness. */
+/** Inputs for deriving felt readiness from floor + orifice accumulation. */
 export interface ArousalWetnessInput {
-  /** Standing lust 0–100 (unit.lewdStats.dynamic.lust). */
+  /** Standing lust 0–100 — mild floor nudge + idle trickle elsewhere. */
   lust?: number;
-  /** Ephemeral encounter arousal 0–100. */
-  encounterArousal?: number;
   /**
-   * Reserved mild desire / mood contribution 0–1.
-   * Hook for later; defaults to 0 when omitted.
+   * @deprecated Encounter arousal gates secretion; no longer adds felt directly.
+   * Accepted for call-site compatibility; ignored in felt math.
    */
+  encounterArousal?: number;
+  /** Reserved mild desire / mood floor nudge 0–1. */
   desireMood01?: number;
+  /**
+   * Accumulated orificeSlick.vagina wet01 (fluid truth).
+   * Required for readiness climb beyond ambient floor.
+   */
+  orificeWet01?: number;
 }
 
 /**
- * Cycle ambient + arousal boosts → felt vaginal wetness.
- * Players discover: daydream / stim → arousal ↑ → slick ↑ → cloth dampens.
+ * Cycle ambient floor + lust nudge + orifice accumulation → felt readiness.
  */
 export interface FeltWetnessReport {
-  /** Cycle-only ambient. */
+  /** Cycle-only ambient floor. */
   cycleWetness: number;
+  /** Mild lust floor nudge. */
   lustBoost: number;
+  /** Always 0 — encounter no longer adds felt directly. */
   encounterBoost: number;
   desireMoodBoost: number;
-  /** Sum of arousal-side boosts before clamp. */
+  /** lust + desireMood floor nudges (not encounter). */
   arousalBoost: number;
+  /** orificeSlick.vagina wet01 used in this derive. */
+  orificeWet01: number;
+  /** Felt contribution from orifice accumulation. */
+  secretedFelt: number;
+  /** Cycle lubrication rate mult (informational on report). */
+  lubricationRate01: number;
   /** Felt slick clamped to wetnessCap (may exceed readiness 1.0). */
   feltWetness: number;
   /** 0–1 progress toward penetration-ready (felt / readiness, capped at 1). */
@@ -113,7 +133,7 @@ export function mucusKindForDay(day: number, lengthDays: number): MucusKind {
 }
 
 /**
- * Cycle ambient only — kept below readiness at peak so lust/arousal can still move the needle.
+ * Cycle ambient floor — kept below readiness at peak so play still matters.
  * Illustrative peak eggWhite ≈ 0.48 + crest×0.12 + E boost ≤ ~0.68.
  */
 function wetnessFor(
@@ -133,6 +153,22 @@ function wetnessFor(
   return Math.max(0, Math.min(1, base[kind] + crest * 0.12 + eBoost));
 }
 
+/** Secretion rate mult from mucus / crest / estrogen (moderate fertile advantage). */
+export function lubricationRateFor(
+  kind: MucusKind,
+  crest: number,
+  estrogen: number
+): number {
+  const R = T.cycle.lubricationRate;
+  const mucus = R.byMucus[kind] ?? 0.6;
+  const eBoost = Math.min(
+    R.estrogenBonusCap,
+    Math.log(Math.max(1, estrogen)) * 0.04
+  );
+  const raw = mucus + crest * R.crestBonus + eBoost;
+  return Math.max(R.rateMin, Math.min(R.rateMax, raw));
+}
+
 export function bodilyStateFromHormones(
   h: HormoneSnapshot,
   lengthDays: number
@@ -147,6 +183,7 @@ export function bodilyStateFromHormones(
   return {
     mucusKind,
     wetness01: wetnessFor(mucusKind, crest, h.estrogen),
+    lubricationRate01: lubricationRateFor(mucusKind, crest, h.estrogen),
     genitalSensMult,
     fertileCrest01: crest,
     blurb: MUCUS_BLURB[mucusKind],
@@ -199,25 +236,27 @@ function clampFelt(n: number): number {
 }
 
 /**
- * Layer lust / encounter arousal / optional desire-mood onto cycle ambient wetness.
- * May exceed readiness (1.0) up to wetnessCap when arousal is strong/persistent.
+ * Derive felt readiness from ambient floor + lust nudge + orifice accumulation.
+ * Encounter arousal is ignored here (gates secretion elsewhere).
  */
 export function feltWetness(
   cycleWetness: number,
-  input?: ArousalWetnessInput
+  input?: ArousalWetnessInput & { lubricationRate01?: number }
 ): FeltWetnessReport {
   const W = T.cycle.arousalWetness;
   const ready = T.cycle.readinessWetness;
   const lust01 = clamp01((input?.lust ?? 0) / 100);
-  const enc01 = clamp01((input?.encounterArousal ?? 0) / 100);
   const desireMood01 = clamp01(input?.desireMood01 ?? 0);
+  const orificeWet01 = Math.max(0, input?.orificeWet01 ?? 0);
 
-  const lustBoost = lust01 * W.lustBoostMax;
-  const encounterBoost = enc01 * W.encounterBoostMax;
+  const lustFloorMax = W.lustFloorNudgeMax ?? W.lustBoostMax ?? 0.08;
+  const lustBoost = lust01 * lustFloorMax;
+  const encounterBoost = 0;
   const desireMoodBoost = desireMood01 * W.desireMoodBoostMax;
-  const arousalBoost = lustBoost + encounterBoost + desireMoodBoost;
+  const arousalBoost = lustBoost + desireMoodBoost;
   const cycle = Math.max(0, cycleWetness);
-  const felt = clampFelt(cycle + arousalBoost);
+  const secretedFelt = orificeWet01 * (W.secretedToFeltMult ?? 1);
+  const felt = clampFelt(cycle + arousalBoost + secretedFelt);
   const readiness01 = clamp01(felt / Math.max(0.01, ready));
 
   return {
@@ -226,6 +265,9 @@ export function feltWetness(
     encounterBoost,
     desireMoodBoost,
     arousalBoost,
+    orificeWet01,
+    secretedFelt,
+    lubricationRate01: Math.max(0, input?.lubricationRate01 ?? 0),
     feltWetness: felt,
     readiness01,
     oversaturated: felt > ready + 1e-6,
@@ -246,7 +288,7 @@ export function effectiveWetness01(
   return feltWetness(cycleWetness01, input);
 }
 
-/** Convenience: cycle bodily state + unit lust / optional encounter → felt slick. */
+/** Convenience: cycle + lust floor nudge + orificeSlick.vagina → felt readiness. */
 export function feltWetnessForUnit(
   unit: DetailedUnit,
   opts?: {
@@ -268,11 +310,18 @@ export function feltWetnessForUnit(
       );
     })();
   if (!bodily) return null;
+  const orificeWet01 = blendOrificeWet01(unit);
   return feltWetness(bodily.wetness01, {
     lust: unit.lewdStats.dynamic.lust ?? 0,
     encounterArousal: opts?.encounterArousal,
     desireMood01: opts?.desireMood01,
+    orificeWet01,
+    lubricationRate01: bodily.lubricationRate01,
   });
+}
+
+function blendOrificeWet01(unit: DetailedUnit): number {
+  return blendOrificeSlick(unit.lewdStats.dynamic.orificeSlick?.vagina).wet01;
 }
 
 /** @deprecated use feltWetnessForUnit */

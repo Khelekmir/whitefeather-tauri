@@ -139,6 +139,17 @@ export const DETAILED_PLACEHOLDER_CHARACTERS: DetailedUnit[] = [
         attractedToBoys: true,
         attractedToGirls: false,
         ovulationCycleLength: 26,
+        /** Eager / anxious heat — elevated E+T, softer P. */
+        hormoneSwing: { estrogen: 1.12, testosterone: 1.18, progesterone: 0.88 },
+        /**
+         * Deep anal at tip → powerful squirting volume.
+         * Wired when climax tip channels include rectumDeep / anus.
+         */
+        climaxTipMods: {
+          volumeMult: 1.85,
+          tipTargetIncludes: ['rectumDeep', 'rectumShallow', 'anus'],
+          label: 'anal squirt',
+        },
       },
       dynamic: {
         lust: 52,
@@ -354,6 +365,8 @@ export const DETAILED_PLACEHOLDER_CHARACTERS: DetailedUnit[] = [
         attractedToBoys: true,
         attractedToGirls: false,
         ovulationCycleLength: 28,
+        /** Reserved warrior — muted E/T peaks, mild P up. */
+        hormoneSwing: { estrogen: 0.88, testosterone: 0.85, progesterone: 1.05 },
       },
       dynamic: {
         lust: 22,
@@ -572,6 +585,8 @@ export const DETAILED_PLACEHOLDER_CHARACTERS: DetailedUnit[] = [
         attractedToBoys: true,
         attractedToGirls: false,
         ovulationCycleLength: 24,
+        /** Ordinary E, low T, high P — sharper luteal cool-down. */
+        hormoneSwing: { estrogen: 1.02, testosterone: 0.86, progesterone: 1.16 },
       },
       dynamic: {
         lust: 30,
@@ -689,6 +704,8 @@ export const DETAILED_PLACEHOLDER_CHARACTERS: DetailedUnit[] = [
         attractedToBoys: false,
         attractedToGirls: true,
         ovulationCycleLength: 25,
+        /** High E, low T+P — warm receptivity, soft urge, milder luteal damp. */
+        hormoneSwing: { estrogen: 1.18, testosterone: 0.88, progesterone: 0.86 },
       },
       dynamic: {
         lust: 24,
@@ -915,6 +932,8 @@ export const DETAILED_PLACEHOLDER_CHARACTERS: DetailedUnit[] = [
         attractedToBoys: true,
         attractedToGirls: false,
         ovulationCycleLength: 28,
+        /** Restless damoiselle — high E, elevated T, softer P. */
+        hormoneSwing: { estrogen: 1.15, testosterone: 1.1, progesterone: 0.9 },
       },
       dynamic: {
         lust: 22,
@@ -1247,9 +1266,14 @@ export const DETAILED_PLACEHOLDER_CHARACTERS: DetailedUnit[] = [
         whitefeather: false,
         attractedToBoys: true,
         attractedToGirls: false,
+        ovulationCycleLength: 29,
+        /** Settled caregiver — quiet E, low T, elevated P. */
+        hormoneSwing: { estrogen: 0.94, testosterone: 0.87, progesterone: 1.14 },
       },
       dynamic: {
         lust: 20,
+        /** ~day 10 — late follicular. */
+        ovulationCycleCurrent: 10 * 24,
       },
       itemizedLewd: NATALIE_ITEMIZED_LEWD,
     },

@@ -80,7 +80,8 @@ export const lewdBits = {
         forehead: { sensitivity: 0.9, intimacy: 0.4, name: "forehead", prose: "A broad brow." },
         nose: { sensitivity: 3.0, intimacy: 2.5, name: "nose", prose: "The nose." },
         cheeks: { sensitivity: 1.7, intimacy: 1.1, name: "cheek", prose: "The soft skin on either side of the face." },
-        lips: { sensitivity: 6.2, intimacy: 6.9, name: "lips", prose: "Soft but masculine lips." },
+        /** Intimate, but early kissing should not gate like genital contact. */
+        lips: { sensitivity: 6.2, intimacy: 5.8, name: "lips", prose: "Soft but masculine lips." },
         teeth: { sensitivity: 0.7, intimacy: 8.0, name: "teeth", prose: "the teeth, strong and sharp." },
         tongue: { sensitivity: 7.6, intimacy: 7.3, name: "tongue", prose: "Hot, wet, and versatile." },
         mouthShallow: { sensitivity: 3.8, intimacy: 7.2, name: "mouth", prose: "the cavern of the mouth." },
@@ -122,7 +123,8 @@ export const lewdBits = {
         rectumShallow: { sensitivity: 6.6, intimacy: 8.9, name: "rectum", prose: "The outer part of the rectal canal." },
         rectumDeep: { sensitivity: 6.2, intimacy: 9.0, name: "rectal depths", prose: "The deeper part of the rectal canal." },
         hip: { sensitivity: 2.0, intimacy: 1.3, name: "hip", prose: "The area over the hip bones." },
-        thighInner: { sensitivity: 5.1, intimacy: 4.2, name: "inner thigh", prose: "The soft inner thigh area." },
+        /** Secondary erogenous — above edge cliff for slow edge feed, below genital. */
+        thighInner: { sensitivity: 5.7, intimacy: 4.2, name: "inner thigh", prose: "The soft inner thigh area." },
         thighBack: { sensitivity: 2.8, intimacy: 2.0, name: "backside of the thigh", prose: "The back of the upper leg." },
         thighFront: { sensitivity: 2.3, intimacy: 1.6, name: "thigh", prose: "The front side of the upper leg." },
         calf: { sensitivity: 1.6, intimacy: 0.9, name: "calf", prose: "The back part of the lower leg." },
@@ -139,7 +141,8 @@ export const lewdBits = {
         forehead: { sensitivity: 1.0, intimacy: 0.5, name: "forehead", prose: "a delicate brow furrowed by quiet glances." },
         nose: { sensitivity: 2.1, intimacy: 2.5, name: "nose", prose: "the nose, straight and noble." },
         cheeks: { sensitivity: 1.8, intimacy: 1.5, name: "cheek", prose: "the soft, rosy skin on either side of the face." },
-        lips: { sensitivity: 6.5, intimacy: 7.0, name: "lips", prose: "lips full and curved, tender with promise." },
+        /** Intimate affection; kept below breast/genital so first kisses warm freely. */
+        lips: { sensitivity: 6.5, intimacy: 5.9, name: "lips", prose: "lips full and curved, tender with promise." },
         teeth: { sensitivity: 0.7, intimacy: 8.0, name: "teeth", prose: "the teeth, bright and sharp." },
         tongue: { sensitivity: 7.8, intimacy: 7.5, name: "tongue", prose: "hot, wet, and pliable, playful and tantalizing." },
         mouthShallow: { sensitivity: 3.8, intimacy: 7.2, name: "mouth", prose: "the hot, wet cavern of the mouth." },
@@ -151,8 +154,12 @@ export const lewdBits = {
         throat: { sensitivity: 2.8, intimacy: 2.2, name: "throat", prose: "the hollow of the throat, vibrating with the sound of her voice." },
         clavicle: { sensitivity: 3.0, intimacy: 2.5, name: "clavicle", prose: "the graceful line of the collarbone, elegant and quietly alluring." },
         breast: { sensitivity: 6.9, intimacy: 7.2, name: "breast", prose: "the full swell of the breast, soft and warm to the touch." },
-        areola: { sensitivity: 7.3, intimacy: 7.9, name: "areola", prose: "the rose-colored halo around the nipple." },
-        nipple: { sensitivity: 9.0, intimacy: 9.2, name: "nipple", prose: "the sensitive peak of desire, responsive to touch." },
+        areola: { sensitivity: 7.3, intimacy: 7.5, name: "areola", prose: "the rose-colored halo around the nipple." },
+        /**
+         * Highly erogenous (edge-capable) but less gate-heavy than genital contact —
+         * welcome earlier in warmup than clit/vagina.
+         */
+        nipple: { sensitivity: 8.6, intimacy: 7.8, name: "nipple", prose: "the sensitive peak of desire, responsive to touch." },
         shoulder: { sensitivity: 1.5, intimacy: 0.9, name: "shoulder", prose: "the curve of the shoulder, strong yet inviting." },
         armPit: { sensitivity: 1.7, intimacy: 1.8, name: "armpit", prose: "the soft pit of the arm, devilishly ticklish." },
         armUpper: { sensitivity: 1.2, intimacy: 0.7, name: "upper arm", prose: "the upper arm, smooth but firm to the touch." },
@@ -183,7 +190,11 @@ export const lewdBits = {
         rectumShallow: { sensitivity: 6.9, intimacy: 9.0, name: "rectum", prose: "just within, a place of rare intimacy and trust." },
         rectumDeep: { sensitivity: 6.5, intimacy: 9.1, name: "rectal depths", prose: "the deeper reaches, hidden and guarded by closeness." },
         hip: { sensitivity: 2.2, intimacy: 1.5, name: "hip", prose: "the outward curve of the hips, swaying with natural rhythm." },
-        thighInner: { sensitivity: 5.5, intimacy: 4.7, name: "inner thigh", prose: "the smooth inner thigh, smooth and warmth." },
+        /**
+         * Secondary erogenous — intentionally above the edge cliff (~sens 5.3)
+         * so firm inner-thigh play can feed edge slowly without matching genital.
+         */
+        thighInner: { sensitivity: 5.9, intimacy: 4.7, name: "inner thigh", prose: "the smooth inner thigh, smooth and warmth." },
         thighBack: { sensitivity: 3.0, intimacy: 2.2, name: "backside of the thigh", prose: "the strong back of the thigh, taut and tempting." },
         thighFront: { sensitivity: 2.5, intimacy: 1.8, name: "thigh", prose: "the front of the thigh, soft yet powerful." },
         kneeFront: { sensitivity: 1.2, intimacy: 0.7, name: "knee", prose: "the front bend of the leg, a hard and threatening joint." },
@@ -240,14 +251,16 @@ export const lewdActionList = {
     /** Tongue probe — intimate teasing; was 7.6 (near penetration). */
     tongueProbe: { intimacy: 5.8, stimulation: 5.9, access: 'orifice', description: "probing the target area with the tongue", verb: "probe", targets: ["mouthShallow", "mouthDeep", "bellyButton", "urethra", "vaginaShallow", "anus", "rectumShallow"] },
     tongueTrace: { intimacy: 3.7, stimulation: 4.1, access: 'clothOk', description: "circling or pattern tracing the target area with the tongue", verb: "trace", targets: ["ear", "nose", "cheeks", "lips", "chin", "neckNape", "neckSide", "throat", "clavicle", "breast", "areola", "nipple", "shoulder", "armPit", "armUpper", "armLower", "wrist", "handBack", "handPalm", "handFinger", "sternum", "bellyUpper", "bellyButton", "bellyLower", "backUpper", "backLower", "oblique", "iliacRegion", "monsVenus", "labiaMajora", "labiaMinora", "clitoris", "urethra", "perinium", "buttockMain", "buttockUnderside", "anus", "hip", "thighInner", "thighBack", "thighFront", "kneeFront", "kneeBack", "calf", "ankle", "footTop", "footBottom", "footToe", "penisHead", "penisHeadUnderside", "penisShaft", "penisShaftUnderside", "testicles"] },
-    bite: { intimacy: 3.6, stimulation: 4.0, pain: 0.45, painKind: 'sting', description: "biting the target area with the teeth", verb: "bite", targets: ["ear", "nose", "cheeks", "lips", "tongue", "chin", "neckNape", "neckSide", "clavicle", "breast", "areola", "nipple", "shoulder", "armUpper", "armLower", "wrist", "handBack", "handPalm", "handFinger", "sternum", "bellyUpper", "bellyButton", "bellyLower", "backUpper", "backLower", "oblique", "iliacRegion", "monsVenus", "labiaMajora", "labiaMinora", "clitoris", "buttockMain", "buttockUnderside", "hip", "thighInner", "thighBack", "thighFront", "kneeFront", "kneeBack", "calf", "ankle", "footTop", "footBottom", "footToe", "penisHead", "penisHeadUnderside", "penisShaft", "penisShaftUnderside", "testicles"] },
+    /** Slightly more intimate than a casual slap — bonding sting on neck/lips. */
+    bite: { intimacy: 4.5, stimulation: 4.0, pain: 0.45, painKind: 'sting', description: "biting the target area with the teeth", verb: "bite", targets: ["ear", "nose", "cheeks", "lips", "tongue", "chin", "neckNape", "neckSide", "clavicle", "breast", "areola", "nipple", "shoulder", "armUpper", "armLower", "wrist", "handBack", "handPalm", "handFinger", "sternum", "bellyUpper", "bellyButton", "bellyLower", "backUpper", "backLower", "oblique", "iliacRegion", "monsVenus", "labiaMajora", "labiaMinora", "clitoris", "buttockMain", "buttockUnderside", "hip", "thighInner", "thighBack", "thighFront", "kneeFront", "kneeBack", "calf", "ankle", "footTop", "footBottom", "footToe", "penisHead", "penisHeadUnderside", "penisShaft", "penisShaftUnderside", "testicles"] },
     handHold: { intimacy: 2.2, stimulation: 2.9, description: "holding the target area with the hand", verb: "hold", targets: ["head", "cheeks", "neckSide", "throat", "breast", "shoulder", "armPit", "armUpper", "armLower", "wrist", "handBack", "handPalm", "handFinger", "buttockMain", "buttockUnderside", "hip", "thighInner", "thighBack", "thighFront", "kneeFront", "kneeBack", "calf", "ankle", "footTop", "footBottom", "footToe", "penisShaft", "testicles"] },
     handPat: { intimacy: 2.8, stimulation: 3.3, description: "patting the target area with the hand", verb: "pat", targets: ["head", "cheeks", "breast", "shoulder", "armUpper", "armLower", "wrist", "handBack", "bellyUpper", "bellyLower", "backUpper", "backLower", "oblique", "iliacRegion", "monsVenus", "labiaMajora", "clitoris", "buttockMain", "buttockUnderside", "hip", "thighInner", "thighBack", "thighFront", "kneeFront", "kneeBack", "calf", "ankle", "footTop", "footBottom", "penisShaft", "testicles"] },
     fingerTap: { intimacy: 4.2, stimulation: 4.5, description: "tapping or drumming the target area with a finger or fingers", verb: "tap", targets: ["head", "nose", "lips", "chin", "clavicle", "nipple", "shoulder", "wrist", "handBack", "handPalm", "handFinger", "bellyButton", "iliacRegion", "monsVenus", "clitoris", "urethra", "perinium", "anus", "kneeFront", "footToe", "penisHead", "testicles"] },
     fingerTrace: { intimacy: 3.7, stimulation: 4.1, description: "circling or pattern tracing the target area with a finger or fingers", verb: "trace", targets: ["ear", "nose", "cheeks", "lips", "chin", "neckNape", "neckSide", "throat", "clavicle", "breast", "areola", "nipple", "shoulder", "armPit", "armUpper", "armLower", "wrist", "handBack", "handPalm", "handFinger", "sternum", "bellyUpper", "bellyButton", "bellyLower", "backUpper", "backLower", "oblique", "iliacRegion", "monsVenus", "labiaMajora", "labiaMinora", "clitoris", "urethra", "perinium", "buttockMain", "buttockUnderside", "anus", "hip", "thighInner", "thighBack", "thighFront", "kneeFront", "kneeBack", "calf", "ankle", "footTop", "footBottom", "footToe", "penisHead", "penisHeadUnderside", "penisShaft", "penisShaftUnderside", "testicles"] },
     palmRub: { intimacy: 3.5, stimulation: 3.9, description: "rubbing the target area with an open palm", verb: "rub", targets: ["cheeks", "neckNape", "neckSide", "breast", "shoulder", "armUpper", "armPit", "armLower", "handPalm", "bellyUpper", "bellyLower", "backUpper", "backLower", "oblique", "iliacRegion", "monsVenus", "labiaMajora", "buttockMain", "buttockUnderside", "hip", "thighInner", "thighBack", "thighFront", "kneeFront", "calf", "ankle", "footTop", "footBottom", "penisHead", "penisHeadUnderside", "penisShaft", "penisShaftUnderside", "testicles"] },
     thumbRub: { intimacy: 4.4, stimulation: 4.8, access: 'clothOk', description: "rubbing the target area with the thumb", verb: "rub", targets: ["cheeks", "lips", "neckNape", "neckSide", "throat", "areola", "nipple", "wrist", "handPalm", "handFinger", "clitoris", "anus", "calf", "footBottom", "penisHead", "penisHeadUnderside"] },
-    tickle: { intimacy: 4.8, stimulation: 5.0, description: "tickling the target area with the fingers", verb: "tickle", targets: ["cheeks", "neckNape", "neckSide", "armPit", "breast", "areola", "nipple", "bellyUpper", "bellyButton", "bellyLower", "oblique", "iliacRegion", "monsVenus", "labiaMajora", "anus", "thighInner", "thighBack", "kneeBack", "footBottom", "penisHeadUnderside", "penisShaftUnderside", "testicles"] },
+    /** Playful physio; less intimate than a deliberate palm caress. */
+    tickle: { intimacy: 3.4, stimulation: 5.0, description: "tickling the target area with the fingers", verb: "tickle", targets: ["cheeks", "neckNape", "neckSide", "armPit", "breast", "areola", "nipple", "bellyUpper", "bellyButton", "bellyLower", "oblique", "iliacRegion", "monsVenus", "labiaMajora", "anus", "thighInner", "thighBack", "kneeBack", "footBottom", "penisHeadUnderside", "penisShaftUnderside", "testicles"] },
     pinch: { intimacy: 4.6, stimulation: 5.0, pain: 0.4, painKind: 'pinch', description: "pinching the target area with the fingers", verb: "pinch", targets: ["ear", "nose", "cheeks", "nipple", "handFinger", "bellyUpper", "bellyLower", "oblique", "labiaMajora", "labiaMinora", "clitoris", "buttockMain", "buttockUnderside", "thighInner", "thighBack", "thighFront", "footToe", "penisHead", "penisShaft", "testicles"] },
     /**
      * Finger probe — still deep for genital/anal; mouth pairs rely on soft-cap clamp.
@@ -259,15 +272,21 @@ export const lewdActionList = {
     footRub: { intimacy: 3.3, stimulation: 3.7, description: "stroking or rubbing the target area with a foot", verb: "rub", targets: ["head", "cheeks", "lips", "chin", "clavicle", "breast", "shoulder", "armPit", "armUpper", "armLower", "wrist", "handBack", "sternum", "bellyUpper", "bellyLower", "backUpper", "backLower", "oblique", "iliacRegion", "monsVenus", "labiaMajora", "buttockMain", "buttockUnderside", "hip", "thighInner", "thighBack", "thighFront", "kneeFront", "calf", "footTop", "footBottom", "penisHead", "penisHeadUnderside", "penisShaft", "penisShaftUnderside", "testicles"] },
     step: { intimacy: 3.1, stimulation: 3.6, description: "applying pressure to the target area with a foot", verb: "step on", targets: ["head", "cheeks", "chin", "clavicle", "breast", "shoulder", "armUpper", "armLower", "wrist", "handBack", "sternum", "bellyUpper", "bellyLower", "backUpper", "backLower", "oblique", "iliacRegion", "monsVenus", "labiaMajora", "buttockMain", "buttockUnderside", "hip", "thighInner", "thighBack", "thighFront", "kneeFront", "calf", "footTop", "footBottom", "penisHead", "penisHeadUnderside", "penisShaft", "penisShaftUnderside", "testicles"] },
     breastRub: { intimacy: 2.3, stimulation: 2.9, description: "applying rubbing pressure to the target area with the breasts", verb: "rub against", targets: ["head", "forehead", "cheeks", "lips", "chin", "neckNape", "breast", "shoulder", "armUpper", "armLower", "handBack", "handPalm", "bellyUpper", "bellyLower", "backUpper", "backLower", "buttockMain", "buttockUnderside", "hip", "thighBack", "thighFront", "calf", "ankle", "footTop", "footBottom", "penisHead", "penisShaft"] },
-    paizuri: { intimacy: 8.4, stimulation: 7.6, description: "stroking an object between the breasts", verb: "surround and rub", targets: ["penisHead", "penisShaft"] },
+    /** Intimate, below PIV-tier gate; stim stays strong for the enveloped member. */
+    paizuri: { intimacy: 7.0, stimulation: 7.6, description: "stroking an object between the breasts", verb: "surround and rub", targets: ["penisHead", "penisShaft"] },
     frotFemale: { intimacy: 3.1, stimulation: 3.6, description: "rubbing, rocking, or grinding against the target area with the female genitalia", verb: "rub against", targets: ["head", "tongue", "chin", "throat", "shoulder", "armPit", "armUpper", "armLower", "wrist", "handBack", "handPalm", "handFinger", "bellyUpper", "bellyLower", "backUpper", "backLower", "oblique", "monsVenus", "labiaMajora", "labiaMinora", "clitoris", "hip", "thighBack", "thighFront", "kneeFront", "kneeBack", "calf", "ankle", "footTop", "footBottom", "penisHeadUnderside", "penisShaft", "penisShaftUnderside"] },
     vaginalContraction: { intimacy: 8.9, stimulation: 7.9, access: 'orifice', description: "flexing and clenching the vagina around an inserted member", verb: "clench around", targets: ["tongue", "handFinger", "penisHead", "penisShaft"] },
-    analContraction: { intimacy: 8.7, stimulation: 9.9, access: 'orifice', description: "flexing and clenching the anus around an inserted member", verb: "clench around", targets: ["tongue", "handFinger", "penisHead", "penisShaft"] },
+    /** Strong kink spike; kept below cartoon 9.9 so it does not outpace all other verbs. */
+    analContraction: { intimacy: 8.7, stimulation: 8.4, access: 'orifice', description: "flexing and clenching the anus around an inserted member", verb: "clench around", targets: ["tongue", "handFinger", "penisHead", "penisShaft"] },
     thighSqueeze: { intimacy: 3.0, stimulation: 2.6, description: "squeezing the inner thighs of a member mounted under the pelvis", verb: "squeeze", targets: ["head", "armUpper", "armLower", "wrist", "handBack", "handPalm", "oblique", "thighInner", "thighBack", "thighFront", "calf"] },
     intercruralSqueeze: { intimacy: 6.0, stimulation: 5.6, description: "simulated intercourse by squeezing the inner thighs around a penis", verb: "squeeze", targets: ["penisShaft"] },
     frotMale: { intimacy: 3.3, stimulation: 3.6, description: "rubbing, rocking, or grinding against the target area with the penis", verb: "rub against", targets: ["head", "ear", "forehead", "nose", "cheeks", "lips", "tongue", "mouthShallow", "mouthDeep", "chin", "neckNape", "neckSide", "throat", "clavicle", "armPit", "breast", "areola", "nipple", "shoulder", "armUpper", "armLower", "wrist", "handBack", "handPalm", "handFinger", "sternum", "bellyUpper", "bellyButton", "bellyLower", "backUpper", "backLower", "oblique", "iliacRegion", "monsVenus", "labiaMajora", "labiaMinora", "clitoris", "urethra", "perinium", "buttockMain", "buttockUnderside", "anus", "hip", "thighInner", "thighBack", "thighFront", "kneeFront", "kneeBack", "calf", "ankle", "footTop", "footBottom", "footToe"] },
-    grind: { intimacy: 8.6, stimulation: 5.8, access: 'orifice', description: "grinding or gyrating of the penis within the specified area", verb: "grind within", targets: ["armPit", "thighInner", "mouthShallow", "mouthDeep", "mouthThroat", "vaginaShallow", "vaginaDeep", "rectumShallow", "rectumDeep"] },
-    thrust: { intimacy: 8.6, stimulation: 5.8, access: 'orifice', description: "rythmic thrusting of the penis into the specified area", verb: "thrust into", targets: ["armPit", "thighInner", "mouthShallow", "mouthDeep", "mouthThroat", "vaginaShallow", "vaginaDeep", "rectumShallow", "rectumDeep"] },
+    /**
+     * Penetration rhythm — intimacy stays orifice-tier; stim lifted so PIV/anal
+     * is not weaker physio than suckShallow at equal intensity.
+     */
+    grind: { intimacy: 8.6, stimulation: 7.2, access: 'orifice', description: "grinding or gyrating of the penis within the specified area", verb: "grind within", targets: ["armPit", "thighInner", "mouthShallow", "mouthDeep", "mouthThroat", "vaginaShallow", "vaginaDeep", "rectumShallow", "rectumDeep"] },
+    thrust: { intimacy: 8.6, stimulation: 7.5, access: 'orifice', description: "rythmic thrusting of the penis into the specified area", verb: "thrust into", targets: ["armPit", "thighInner", "mouthShallow", "mouthDeep", "mouthThroat", "vaginaShallow", "vaginaDeep", "rectumShallow", "rectumDeep"] },
     toeTrace: { intimacy: 4.1, stimulation: 3.1, access: 'clothOk', description: "circling or pattern tracing the target area with a toe or toes", verb: "trace", targets: ["armPit", "cheeks", "lips", "chin", "neckNape", "neckSide", "throat", "clavicle", "breast", "areola", "nipple", "shoulder", "armUpper", "armLower", "wrist", "handBack", "handPalm", "handFinger", "sternum", "bellyUpper", "bellyButton", "bellyLower", "backUpper", "backLower", "oblique", "iliacRegion", "monsVenus", "labiaMajora", "labiaMinora", "clitoris", "buttockMain", "buttockUnderside", "anus", "hip", "thighInner", "thighBack", "thighFront", "kneeFront", "kneeBack", "calf", "ankle", "footTop", "footBottom", "footToe", "penisHead", "penisHeadUnderside", "penisShaft", "penisShaftUnderside", "testicles"] },
     toeProbe: { intimacy: 5.4, stimulation: 3.6, access: 'orifice', description: "probing into the target area with a toe or toes", verb: "probe", targets: ["mouthShallow", "vaginaShallow"] },
 }

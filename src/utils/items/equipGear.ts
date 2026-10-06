@@ -4,6 +4,7 @@ import {
   type Item,
   type ItemSlot,
 } from '../../types/items';
+import { transferGarmentDampToSkin } from '../lewd/fluidSoil';
 
 /**
  * Shared equip / unequip for status, social, combat, and lewd.
@@ -90,6 +91,11 @@ export function unequipSlot(ctx: GearCtx, slot: ItemSlot): GearResult {
   if (!item) {
     ctx.unit.equipment[slot] = null;
     return fail('missing_item', `Missing item ${id} for ${slot}; slot cleared.`);
+  }
+  // Wet pants/panties leave tacky smear on skin where cloth was damp.
+  if (slot === 'leg' || slot === 'underwear') {
+    const next = transferGarmentDampToSkin(ctx.unit, item);
+    ctx.unit.lewdStats = next.lewdStats;
   }
   ctx.unit.equipment[slot] = null;
   item.equippedSlot = null;

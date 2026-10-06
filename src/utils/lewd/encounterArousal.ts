@@ -1,13 +1,23 @@
 import type { Sex } from '../../types/characters';
 import { arousalSoftCapForErogenous } from './erogenous';
+import { bodyCommit01 } from './intimacyBond';
 import { LEWD_TUNING as T } from './lewdTuning';
 
 /**
- * Body posture for cloth fluid routing (Lab stub; scene tags later).
- * Standing: overflow can run to inner thigh / calf.
- * Seated / lying: pool on seat — no “up the thighs” when knees bent.
+ * Body posture for cloth / skin fluid routing (Lab stub; scene tags later).
+ * - standing: overflow → inner thigh / calf
+ * - seated / lying: pool on seat (no “up the thighs”)
+ * - handsKnees: face-down ass-up — runoff toward knees + partner stub
+ * - sideLying: spooning / side entry — lower hip/seat + thigh
+ * - mounted: cowgirl — overflow can soil partner’s crotch cloth (stub)
  */
-export type EncounterPosture = 'standing' | 'seated' | 'lying';
+export type EncounterPosture =
+  | 'standing'
+  | 'seated'
+  | 'lying'
+  | 'handsKnees'
+  | 'sideLying'
+  | 'mounted';
 
 /** Ephemeral encounter meters (0–100). Not the same as relational Desire. */
 export interface EncounterArousalState {
@@ -31,6 +41,11 @@ export interface EncounterArousalState {
    * Written on male orgasm; decays with dt. Females stay 0.
    */
   refractorySecondsRemaining: number;
+  /**
+   * Seconds left in the post-orgasm sensitivity window (“orgasm duration”).
+   * High intensity on hypersens parts or a rapid re-climax builds phys discomfort.
+   */
+  orgasmSecondsRemaining?: number;
   /** Cloth drip / seat-pool routing. Default standing. */
   posture?: EncounterPosture;
 }
@@ -58,12 +73,133 @@ export interface EncounterArousalUpdate {
    * Applied on top of painPsychShare for overstep phys chips.
    */
   overstepPsychBoost?: number;
+  /**
+   * ♀ estrogen for arousal gain + psych softCap (ln-scaled; E peaks ~20×).
+   * Testosterone is applied on act arousal gates, not here.
+   * Omit for males or when unknown.
+   */
+  estrogen?: number;
+  /** @deprecated unused on gain path — T lowers act gates in arousalGate */
+  testosterone?: number;
+  /**
+   * Max intensity (1–10) on a post-orgasm hypersensitive target this beat.
+   * Used only while orgasmSecondsRemaining > 0.
+   */
+  hypersensStimIntensity?: number;
+}
+
+/** Psych continuum bands for Lab / prose. */
+export type PsychDiscomfortBand =
+  | 'clear'
+  | 'notice'
+  | 'strain'
+  | 'overwhelm'
+  | 'break';
+
+export function psychDiscomfortBand(psych: number): PsychDiscomfortBand {
+  const C = T.encounter.psychContinuum;
+  const hard = T.encounter.discomfortPsychHardCap;
+  if (psych >= hard) return 'break';
+  if (psych >= C.overwhelm) return 'overwhelm';
+  if (psych >= C.strain) return 'strain';
+  if (psych >= C.notice) return 'notice';
+  return 'clear';
+}
+
+/**
+ * How mind strain shapes arousal/edge: coexist with diminishing returns until
+ * overwhelm, then accelerating decay (caught-in-the-moment → mind catches up).
+ */
+export function psychArousalEdgeResponse(psych: number): {
+  gainMult: number;
+  decayPerSec: number;
+  tipAllowed: boolean;
+  edgeAccrueAllowed: boolean;
+  band: PsychDiscomfortBand;
+} {
+  const C = T.encounter.psychContinuum;
+  const hard = T.encounter.discomfortPsychHardCap;
+  const p = Math.max(0, Math.min(100, psych));
+  const band = psychDiscomfortBand(p);
+
+  if (p < C.notice) {
+    return {
+      gainMult: 1,
+      decayPerSec: 0,
+      tipAllowed: true,
+      edgeAccrueAllowed: true,
+      band,
+    };
+  }
+  if (p < C.strain) {
+    const t = (p - C.notice) / Math.max(0.01, C.strain - C.notice);
+    return {
+      gainMult: 1 - (1 - C.gainMultAtStrain) * t,
+      decayPerSec: 0,
+      tipAllowed: true,
+      edgeAccrueAllowed: true,
+      band,
+    };
+  }
+  if (p < C.overwhelm) {
+    const t = (p - C.strain) / Math.max(0.01, C.overwhelm - C.strain);
+    return {
+      gainMult:
+        C.gainMultAtStrain -
+        (C.gainMultAtStrain - C.gainMultAtOverwhelm) * t,
+      decayPerSec: 0,
+      tipAllowed: true,
+      edgeAccrueAllowed: true,
+      band,
+    };
+  }
+  // Overwhelm → break: no tip, forced decay that accelerates with psych.
+  const t = Math.min(
+    1,
+    (p - C.overwhelm) / Math.max(0.01, hard - C.overwhelm)
+  );
+  const decay =
+    C.overwhelmDecayPerSec + C.overwhelmDecayAccel * t * t;
+  return {
+    gainMult: 0,
+    decayPerSec: decay,
+    tipAllowed: false,
+    edgeAccrueAllowed: false,
+    band,
+  };
+}
+
+/** Targets that write overstim phys inside the post-orgasm sensitivity window. */
+export function isPostOrgasmHypersensTarget(part: string): boolean {
+  return (
+    part === 'clitoris' ||
+    part === 'labiaMinora' ||
+    part === 'urethra' ||
+    part === 'penisHead' ||
+    part === 'penisHeadUnderside' ||
+    /^glans/i.test(part)
+  );
+}
+
+export function postOrgasmWindowSeconds(priorClimaxCount: number): number {
+  const P = T.encounter.postOrgasm;
+  return Math.min(
+    P.durationCapSeconds,
+    P.durationBaseSeconds +
+      Math.max(0, priorClimaxCount) * P.durationPerPriorSeconds
+  );
 }
 
 export interface EncounterArousalResult extends EncounterArousalState {
   climaxed: boolean;
   ruined: boolean;
   softCap: number;
+  /** Edge at tip (before reset); 0 if no climax this beat. */
+  edgeAtClimax: number;
+  /** Arousal at tip (before afterglow drop); 0 if no climax. */
+  arousalAtClimax: number;
+  /** Instantaneous edge push used for tip check. */
+  tipPush: number;
 }
 
 function clamp100(n: number): number {
@@ -90,6 +226,8 @@ function normalizeState(state: EncounterArousalState): {
   climaxCount: number;
   receptivity: number;
   refractorySecondsRemaining: number;
+  orgasmSecondsRemaining: number;
+  posture: EncounterPosture;
 } {
   // Migrate legacy single-discomfort snapshots.
   const hasSplit =
@@ -111,6 +249,8 @@ function normalizeState(state: EncounterArousalState): {
       0,
       state.refractorySecondsRemaining ?? 0
     ),
+    orgasmSecondsRemaining: Math.max(0, state.orgasmSecondsRemaining ?? 0),
+    posture: state.posture ?? 'standing',
   };
 }
 
@@ -124,6 +264,7 @@ export function createEncounterArousalState(): EncounterArousalState {
     climaxCount: 0,
     receptivity: 1,
     refractorySecondsRemaining: 0,
+    orgasmSecondsRemaining: 0,
     posture: 'standing',
   };
 }
@@ -139,8 +280,10 @@ export function maleRefractorySecondsAfterClimax(priorClimaxCount: number): numb
 /**
  * Integrate one beat into Arousal / Edge / dual Discomfort.
  * - Arousal uses diminishing returns toward the erogenous soft cap.
- * - Climaxes compound receptivity so later waves land harder / faster.
- * - Soft-block climax is mind-primary (psych); ruin if either track hard-caps.
+ * - Psych continuum: coexist with gain until overwhelm, then accelerating decay.
+ * - Climaxes compound receptivity + resolve-melt intimacy credit (elsewhere).
+ * - Post-orgasm window: hypersens overstim → phys; rapid re-climax → phys spike.
+ * - Ruin if either discomfort track hard-caps.
  */
 export function updateEncounterArousal(
   state: EncounterArousalState,
@@ -157,15 +300,46 @@ export function updateEncounterArousal(
     climaxCount,
     receptivity,
     refractorySecondsRemaining,
+    orgasmSecondsRemaining,
+    posture,
   } = normalizeState(state);
   let climaxed = false;
   let ruined = false;
+  let edgeAtClimax = 0;
+  let arousalAtClimax = 0;
+  let tipPush = 0;
 
   const erogenous = Math.max(0, Math.min(1, update.erogenous));
   const softCapBoost = Math.min(18, climaxCount * 5);
+
+  // ♀ estrogen → arousal gain (physio + psych equally) + psych-led softCap.
+  // Testosterone is not used here (it lowers act arousal gates elsewhere).
+  let hormoneGainMult = 1;
+  let psychSoftCapBonus = 0;
+  if (update.sex === 'F') {
+    const H = E.femaleHormoneArousal;
+    const e = Math.max(1, update.estrogen ?? 1);
+    const lnE = Math.log(e);
+    const lnRef = Math.log(Math.max(1.01, H.estrogenGainRef));
+    hormoneGainMult = Math.max(
+      H.gainMultMin,
+      Math.min(H.gainMultMax, 1 + H.estrogenLogWeight * (lnE - lnRef))
+    );
+    const lnPeak = Math.log(Math.max(1.01, H.estrogenPeakRef));
+    const estrogen01 = Math.max(0, Math.min(1, lnE / lnPeak));
+    const psychShare =
+      update.psychQuality + update.physioQuality > 1e-6
+        ? update.psychQuality /
+          Math.max(0.05, update.psychQuality + update.physioQuality)
+        : 0;
+    // Equal E voice on psych track softCap; pure social (psychShare≈1) gets full bonus.
+    psychSoftCapBonus =
+      H.psychSoftCapBonusMax * estrogen01 * Math.max(0.15, psychShare);
+  }
+
   const softCap = Math.min(
     100,
-    arousalSoftCapForErogenous(erogenous) + softCapBoost
+    arousalSoftCapForErogenous(erogenous) + softCapBoost + psychSoftCapBonus
   );
 
   if (dt <= 0) {
@@ -179,17 +353,23 @@ export function updateEncounterArousal(
       climaxCount,
       receptivity,
       refractorySecondsRemaining,
+      orgasmSecondsRemaining,
+      posture,
       climaxed,
       ruined,
       softCap,
+      edgeAtClimax,
+      arousalAtClimax,
+      tipPush,
     };
   }
 
-  // Tick down refractory before edge/climax checks.
+  // Tick down refractory + orgasm sensitivity window before edge/climax checks.
   if (refractorySecondsRemaining > 0) {
     refractorySecondsRemaining = Math.max(0, refractorySecondsRemaining - dt);
   }
   const refractory = refractorySecondsRemaining > 0.001;
+  const inOrgasmWindow = orgasmSecondsRemaining > 0.001;
 
   let psychQ = Math.max(0, Math.min(1, update.psychQuality));
   let physioQ = Math.max(0, Math.min(1, update.physioQuality));
@@ -227,7 +407,10 @@ export function updateEncounterArousal(
       E.discomfortOverstepPerSec * sev * overstepEase * dt;
     discomfortPhys = clamp100(discomfortPhys + physChip);
     const psychFromOver =
-      physChip * E.overstepPsychShare * overstepPsychBoost * Math.max(painShare, 0.15);
+      physChip *
+      E.overstepPsychShare *
+      overstepPsychBoost *
+      Math.max(painShare, 0.15);
     discomfortPsych = clamp100(discomfortPsych + psychFromOver);
   } else if (painPhysRate <= 0) {
     // Rest: both tracks decay (phys faster). Pain/overstep suppress decay.
@@ -252,18 +435,56 @@ export function updateEncounterArousal(
     }
   }
 
-  const damp =
-    1 /
-    (1 +
-      E.discomfortDampPhysK * (discomfortPhys / 100) +
-      E.discomfortDampPsychK * (discomfortPsych / 100));
+  // Post-orgasm hypersens overstim → phys (gentle touch below floor is fine).
+  const PO = E.postOrgasm;
+  const hypersensI = Math.max(0, update.hypersensStimIntensity ?? 0);
+  if (inOrgasmWindow && hypersensI >= PO.overstimIntensityFloor) {
+    const intensityScale = hypersensI / 5;
+    const over =
+      (hypersensI - PO.overstimIntensityFloor) /
+      Math.max(0.5, 10 - PO.overstimIntensityFloor);
+    const physChip =
+      PO.overstimPhysPerSecAtIntensity5 *
+      intensityScale *
+      (0.45 + 0.55 * Math.max(0, Math.min(1, over))) *
+      dt;
+    discomfortPhys = clamp100(discomfortPhys + physChip);
+  }
 
-  // --- Arousal ---
+  // Significant phys discomfort bleeds into mind (body signal → flinch / fear).
+  const P2P = E.physToPsych;
+  if (discomfortPhys > P2P.floor) {
+    const span = Math.max(1, 100 - P2P.floor);
+    const t = Math.min(1, (discomfortPhys - P2P.floor) / span);
+    const bleed = P2P.ratePerSecAtFull * Math.pow(t, P2P.curve) * dt;
+    discomfortPsych = clamp100(discomfortPsych + bleed);
+  }
+
+  if (orgasmSecondsRemaining > 0) {
+    orgasmSecondsRemaining = Math.max(0, orgasmSecondsRemaining - dt);
+  }
+
+  const psychResp = psychArousalEdgeResponse(discomfortPsych);
+  const physDamp =
+    1 / (1 + E.discomfortDampPhysK * (discomfortPhys / 100));
+  // Heated body keeps a physio-led gain floor through strain (mind objects,
+  // body still climbs). At overwhelm, psychResp.gainMult is 0 and steers.
+  const heatedPhysioFloor =
+    psychResp.edgeAccrueAllowed && physioQ > 0.08
+      ? bodyCommit01(arousal) * T.bond.bodyCommit.physioMult * 0.42
+      : 0;
+  const effectiveGainMult = Math.max(psychResp.gainMult, heatedPhysioFloor);
+
+  // --- Arousal (psych continuum: diminish, then overwhelm decay) ---
   const arousalPush =
     (E.arousalPsychGainPerSec * psychQ + E.arousalPhysioGainPerSec * physioQ) *
-    damp;
+    physDamp *
+    effectiveGainMult *
+    hormoneGainMult;
 
-  if (arousal > softCap + 0.75) {
+  if (psychResp.decayPerSec > 0.02) {
+    arousal = clamp100(arousal - psychResp.decayPerSec * dt);
+  } else if (arousal > softCap + 0.75) {
     arousal = clamp100(arousal - E.arousalDecayPerSec * 1.4 * dt);
   } else if (arousalPush > 0.02) {
     const fill = softCap > 1 ? Math.min(0.98, arousal / softCap) : 0.98;
@@ -285,42 +506,72 @@ export function updateEncounterArousal(
     arousal = clamp100(arousal - E.arousalDecayPerSec * dt);
   }
 
-  // --- Edge (mind soft-block) ---
+  // --- Edge (psych continuum replaces binary mind soft-block) ---
   const edgeRankGate =
     erogenous >= Er.edgeMinRank
       ? Math.pow(erogenous, Er.edgePhysioPower)
       : 0;
-  const edgeThreshold = Math.max(
-    E.climaxEdgeThresholdFloor,
-    E.climaxEdgeThreshold - climaxCount * E.climaxEdgeThresholdPerPrior
-  );
-  const mindOk = discomfortPsych < E.discomfortPsychSoftCap;
   const canEdge =
     !refractory &&
+    psychResp.edgeAccrueAllowed &&
     arousal >= E.edgeArousalFloor &&
-    mindOk &&
     physioQ > 0.06 &&
     edgeRankGate > 0.02;
 
+  // Raw push (pre-clamp) is the tip signal — ceiling does not block tipping.
+  // Tip requires edge *already* at minEdge before this push (rebuild after reset).
+  const edgeBeforePush = edge;
+  let rawEdgePush = 0;
   if (canEdge) {
-    edge = clamp100(
-      edge + E.edgeGainPerSec * physioQ * edgeRankGate * damp * recv * dt
-    );
+    rawEdgePush =
+      E.edgeGainPerSec *
+      physioQ *
+      edgeRankGate *
+      physDamp *
+      effectiveGainMult *
+      recv *
+      dt;
+    edge = clamp100(edge + rawEdgePush);
   } else {
-    const edgeDecay =
+    let edgeDecay =
       E.edgeDecayPerSec * (refractory ? E.refractory.edgeDecayMult : 1);
+    if (psychResp.decayPerSec > 0.02) {
+      edgeDecay +=
+        psychResp.decayPerSec * E.psychContinuum.overwhelmEdgeDecayMult;
+    }
     edge = clamp100(edge - edgeDecay * dt);
   }
+  tipPush = rawEdgePush;
 
-  // --- Climax (mind soft-block + male refractory block) ---
+  // --- Climax via edge-tip (overwhelm blocks tip; male refractory unchanged) ---
+  const Tip = E.climaxTip;
+  const a01 = arousal / 100;
+  // Use pre-push edge for tip requirement shrink + minEdge gate.
+  const e01 = edgeBeforePush / 100;
+  const tipEase = Math.min(
+    Tip.tipReqEaseCap,
+    climaxCount * Tip.tipReqEasePerPrior
+  );
+  const tipRequirement = Math.max(
+    Tip.tipReqFloor,
+    Tip.tipReqBase *
+      (1 - Tip.arousalWeight * a01) *
+      (1 - Tip.edgeWeight * e01) *
+      (1 - tipEase)
+  );
+
   if (
     !refractory &&
-    edge >= edgeThreshold &&
-    mindOk &&
-    arousal >= E.edgeArousalFloor
+    psychResp.tipAllowed &&
+    arousal >= E.edgeArousalFloor &&
+    edgeBeforePush >= Tip.minEdge &&
+    rawEdgePush >= tipRequirement
   ) {
     climaxed = true;
+    edgeAtClimax = edge;
+    arousalAtClimax = arousal;
     const prior = climaxCount;
+    const wasInOrgasmWindow = inOrgasmWindow;
     climaxCount = prior + 1;
     receptivity = Math.min(
       E.receptivityCap,
@@ -342,6 +593,14 @@ export function updateEncounterArousal(
       discomfortPsych - E.climaxDiscomfortPsychRelief
     );
     discomfortPhys = clamp100(discomfortPhys - E.climaxDiscomfortPhysRelief);
+
+    // Rapid re-climax while still sensitive → phys spike (overwhelmed body).
+    if (wasInOrgasmWindow) {
+      discomfortPhys = clamp100(
+        discomfortPhys + PO.rapidClimaxPhysSpike
+      );
+    }
+    orgasmSecondsRemaining = postOrgasmWindowSeconds(prior);
 
     if (update.sex === 'M') {
       refractorySecondsRemaining = maleRefractorySecondsAfterClimax(prior);
@@ -368,9 +627,14 @@ export function updateEncounterArousal(
     climaxCount,
     receptivity: round2(receptivity),
     refractorySecondsRemaining: round1(refractorySecondsRemaining),
+    orgasmSecondsRemaining: round1(orgasmSecondsRemaining),
+    posture,
     climaxed,
     ruined,
     softCap: round1(softCap),
+    edgeAtClimax: round1(edgeAtClimax),
+    arousalAtClimax: round1(arousalAtClimax),
+    tipPush: round2(tipPush),
   };
 }
 
@@ -397,5 +661,7 @@ export function idleEncounterArousal(
     climaxCount: r.climaxCount,
     receptivity: r.receptivity,
     refractorySecondsRemaining: r.refractorySecondsRemaining,
+    orgasmSecondsRemaining: r.orgasmSecondsRemaining ?? 0,
+    posture: r.posture ?? state.posture ?? 'standing',
   };
 }

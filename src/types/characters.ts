@@ -408,10 +408,33 @@ export interface LewdStatic {
   /** Cycle length in **days** (typically 24–32). */
   ovulationCycleLength: number;
   /**
+   * Per-character amplitude on cycle hormone *excursions* above nadir (=1).
+   * Authored for noticeable individuality (~0.82–1.22); not every castmate
+   * needs the edges. Applied in hormonesForUnit as `1 + (raw − 1) × mult`
+   * so peaks personalize without lifting menstrual floor.
+   */
+  hormoneSwing?: {
+    estrogen?: number;
+    testosterone?: number;
+    progesterone?: number;
+  };
+  /**
    * How strongly arousal/lust climb preferred intensity (default 1).
    * >1 = heat hungrier for intensity; <1 = stays near baseline longer.
    */
   intensityArousalGain?: number;
+  /**
+   * Per-character climax tip / fluid modifiers (optional).
+   * Example: Amberyl deep-anal climax → powerful squirting volume mult.
+   */
+  climaxTipMods?: {
+    /** Volume mult when tip channels include matching targets. */
+    volumeMult?: number;
+    /** Target-part id substrings that activate volumeMult (e.g. 'rectumDeep', 'anus'). */
+    tipTargetIncludes?: string[];
+    /** Short Lab tag when mod fires. */
+    label?: string;
+  };
 }
 
 /** Where a sperm cohort enters / where conception is attributed. */
@@ -483,10 +506,72 @@ export interface LewdDynamic {
    */
   ovulationCycleCurrent: number;
   /**
-   * Skin / nude crotch soil (wet→dry). Cloth soil lives on item.lewdStats.soiled.
-   * See `utils/lewd/fluidSoil.ts`.
+   * Skin / nude crotch soil (legacy). Prefer skinFluidByRegion.
+   * Cloth soil lives on item.lewdStats.soiled / soiledByRegion.
    */
   crotchSoil?: Partial<FluidSoilBag>;
+  /**
+   * Bare-skin surface film by region (does not soak into flesh).
+   * - running: free trail when uncovered
+   *   standing: crotch → thighInner → calf
+   *   handsKnees: crotch → thighInner (no calf — knees on a surface)
+   *   lying/seated: crotch → seat (buttocks trail)
+   * - tacky: contact-wick under wet cloth, or smear left after undress
+   * Feel map: skinFilmFeelByRegion.
+   */
+  skinFluidByRegion?: Partial<
+    Record<'crotch' | 'thighInner' | 'calf' | 'seat', Partial<FluidSoilBag>>
+  >;
+  /**
+   * Per-region feel for skin film: running (migrates) vs tacky (smear, stays put).
+   * Default when bag present but feel omitted: running.
+   */
+  skinFilmFeelByRegion?: Partial<
+    Record<'crotch' | 'thighInner' | 'calf' | 'seat', 'running' | 'tacky'>
+  >;
+  /**
+   * Last known wet scores for growth-rate flavor (cloth `slot:region`, skin `skin:region`).
+   * Updated when soil is applied / advanced; compared on the next change.
+   */
+  soilScoreSnap?: Partial<Record<string, number>>;
+  /** Most recent growth-rate class per snap key (for Lab / narrative). */
+  soilGrowthRate?: Partial<
+    Record<
+      string,
+      | 'clearlyEstablished'
+      | 'slowlyCreeping'
+      | 'steadilyExpanding'
+      | 'swiftlyBlossoming'
+    >
+  >;
+  /**
+   * Lasting anal-verge wetness pool (kind-aware).
+   * Filled from lying/seated seat-trail dwell; survives runoff past the verge.
+   * Passive writer into orificeSlick.anus.
+   */
+  analVergeWet?: Partial<FluidSoilBag>;
+  /**
+   * Multi-lubricant slick layers by orifice (vagina | anus | mouth).
+   * Comfort gates deferred — Lab / verge dwell write anus for now.
+   */
+  orificeSlick?: Partial<
+    Record<
+      'vagina' | 'anus' | 'mouth',
+      Array<{
+        kind:
+          | 'vaginalSecretion'
+          | 'saliva'
+          | 'semen'
+          | 'preEjaculate'
+          | 'oilRefined'
+          | 'oilImprovised'
+          | 'plantExtract'
+          | 'slugMucin';
+        amount01: number;
+        quality01: number;
+      }>
+    >
+  >;
   /** Live egg in tract, if any. */
   ovum?: OvumState | null;
   /** Active motile sperm cohorts. */

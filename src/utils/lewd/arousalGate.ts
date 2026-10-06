@@ -41,6 +41,16 @@ export function requiredArousalForAct(
 }
 
 /**
+ * ♀ testosterone slightly lowers required arousal for lewd acts.
+ * T is ~1–2.8 (not E-scale); linear (T−1) is appropriate.
+ */
+export function testosteroneRequiredMult(testosterone: number): number {
+  const M = T.arousalGate.testosteroneRequiredMult;
+  const t = Math.max(0.5, testosterone);
+  return Math.max(M.min, Math.min(M.max, 1 - M.weight * (t - 1)));
+}
+
+/**
  * Openness credit after climaxes — used only for the readiness gate,
  * not added to the visible arousal meter.
  */

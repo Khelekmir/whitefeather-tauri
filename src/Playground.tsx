@@ -497,10 +497,12 @@ function LewdPanel({ unit }: { unit: DetailedUnit }) {
           }
           const fertile = isInFertileWindow(h, s.ovulationCycleLength);
           const body = bodilyStateFromHormones(h, s.ovulationCycleLength);
+          const soil = deriveSoilCues(unit);
           const wet = feltWetness(body.wetness01, {
             lust: unit.lewdStats.dynamic.lust ?? 0,
+            orificeWet01: soil.vaginaSlick?.wet01 ?? 0,
+            lubricationRate01: body.lubricationRate01,
           });
-          const soil = deriveSoilCues(unit);
           const wetLabel = wet.oversaturated
             ? `Wet ${(wet.feltWetness * 100).toFixed(0)}% oversat`
             : `Wet ${(wet.feltWetness * 100).toFixed(0)}% (ready ${(wet.readiness01 * 100).toFixed(0)}%)`;
