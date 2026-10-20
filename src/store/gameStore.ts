@@ -3,6 +3,9 @@ import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
 import type { GameState } from '../types/game';
 import { createEmptyGameState } from '../types/game';
+import { createDefaultWorldWeather } from '../utils/world/advanceWeather';
+import type { WorldWeather } from '../types/world';
+import { migrateWeatherSky } from '../types/world';
 import { PLACEHOLDER_CHARACTERS } from '../data/placeholderCharacters';
 
 /** Fresh game state pre-loaded with development placeholder units. */
@@ -74,7 +77,25 @@ function normalizeGameState(raw: Partial<GameState> & Record<string, unknown>): 
       typeof raw.lastAutosave === 'string'
         ? raw.lastAutosave
         : new Date().toISOString(),
+    worldWeather: normalizeWorldWeather(raw.worldWeather),
   };
+}
+
+function normalizeWorldWeather(raw: unknown): WorldWeather {
+  if (!raw || typeof raw !== 'object') return createDefaultWorldWeather();
+  const w = raw as Record<string, unknown>;
+  const sky =
+    typeof w.sky === 'string' ? migrateWeatherSky(w.sky) : 'clear';
+  return createDefaultWorldWeather({
+    dayIndex: typeof w.dayIndex === 'number' ? w.dayIndex : 0,
+    hour: typeof w.hour === 'number' ? w.hour : 14,
+    sky,
+    // Refresh precip/wind/ambient from sky (migrates legacy "rain", retuned bands).
+    precip01: undefined,
+    wind01: undefined,
+    ambientF: undefined,
+    surfaceWet01: typeof w.surfaceWet01 === 'number' ? w.surfaceWet01 : undefined,
+  });
 }
 
 interface GameStore {

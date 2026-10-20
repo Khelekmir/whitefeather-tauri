@@ -393,8 +393,13 @@ export const COMBAT_TUNING = {
     critBand: 0.02,
     /** |scale − 1| ≤ this → hit (before competence scaling). */
     hitBand: 0.1,
-    /** Rotation degrees over the full duration. */
+    /** Base rotation degrees over the full duration (novice / competence 0). */
     rotationDegrees: 270,
+    /**
+     * QTE spin ease from uncapped rhythm competence:
+     * degrees = base / (1 + rawCompetence × spinEase) → 0 as skill → ∞.
+     */
+    spinEase: 1.85,
     /** Crit multiplies attack value before damage. */
     critAttackMultiplier: 1.4,
     /**
@@ -447,6 +452,89 @@ export const COMBAT_TUNING = {
   },
 
   /**
+   * Magical combat directional timed input (arrow / WASD).
+   * Collapsing arrowhead eclipses a center outline of all four directions.
+   * Timed beats contribute to base power (missed timing/wrong dir reduce power, do not void cast).
+   * Crits stack multiplicatively (see magicCompetence.critPowerMult).
+   * SPD does not affect magic QTE rhythm.
+   */
+  magicDirectionalQte: {
+    /** Full collapse duration (ms) — standard cast cadence (not SPD-scaled). */
+    durationMs: 1500,
+    /** Base hit window centered on perfect eclipse (ms); competence widens. */
+    successWindowMs: 200,
+    /** Outer arrow starts at this scale (perfect outline = 1). */
+    startScale: 2.6,
+    /** Continues past 1 so late inputs remain possible. */
+    endScale: 0.45,
+    /** Flash hold before onResult (ms). */
+    resultHoldMs: 700,
+    /** New collapsing arrows fade in over this many ms (overlap deconflict). */
+    fadeInMs: 220,
+    /** Resolved arrows fade out over this many ms (clear clutter / same-dir reuse). */
+    resolvedFadeOutMs: 320,
+    /**
+     * Default stagger between chained spell beats (ms).
+     * With duration 1500, 800 leaves ~700 ms of overlap.
+     */
+    sequenceStaggerMs: 800,
+    /** Hold after the last beat resolves before dismissing the sequence overlay. */
+    sequenceEndHoldMs: 650,
+    /**
+     * Undeciphered-direction (spinning) glyphs: total relative rotation across
+     * the collapse, zeroed at perfect eclipse so the tip lands on the required
+     * dir (melee-style align-at-eclipse). Per-cast speed × this base, sign random.
+     */
+    spinBaseDegrees: 360,
+    /** Random spin speed multiplier floor (× spinBaseDegrees). */
+    spinSpeedMin: 0.5,
+    /** Random spin speed multiplier ceiling. */
+    spinSpeedMax: 1.5,
+  },
+
+  /**
+   * Magic cast competence (spell skill + school floor) → hit window & crit fraction.
+   * No offensive stances; SPD is intentionally unused (defense / movement only).
+   */
+  magicCompetence: {
+    /** Blend: spellEff dominates; small SKL hand-eye term. */
+    spellWeight: 0.9,
+    baseSkillWeight: 0.1,
+    /** School rank × this floors spellEff when specific spell practice is low. */
+    schoolFloor: 0.4,
+    /**
+     * Hit-window scale: successWindow *= (bandFloor + (1 - bandFloor) * competence).
+     */
+    bandFloor: 0.28,
+    /**
+     * Untrained haste on collapse: duration /= 1 + (1 - competence) * untrainedHaste.
+     * Keeps clumsy casts slightly snappier; SPD does not ease this.
+     */
+    untrainedHaste: 0.35,
+    /**
+     * Crit is a fraction of the hit window (not a separate absolute band).
+     * critHalf = hitHalf * baseCritFraction * (1 + luckFactor * luckCritBonus), capped ≤ hitHalf.
+     */
+    baseCritFraction: 0.15, // manually reduced from 0.32
+    luckCritBonus: 0.4,
+    /**
+     * Per crit-beat multiplicative stack after base power from timed hits:
+     * power = (timedHits / beats) * critPowerMult ^ critCount
+     * (e.g. 5 beats, 2 mistimed, 2 crits → 0.6 * 1.25²).
+     */
+    critPowerMult: 1.25,
+    /**
+     * Wild magic: if mistimed/(beats − timeouts) > this, backlash hits the caster.
+     * Timeouts are skipped (excluded from the ratio). Damage apply is deferred —
+     * result only carries backlashPower01 stub.
+     */
+    wildMistimeThreshold: 0.5,
+    /** Floors after scaling. */
+    minSuccessWindowMs: 80,
+    minDurationMs: 900,
+  },
+
+  /**
    * Intrinsic attacker miss (competence only) — used after failed player
    * dodge/parry so NPC swings can still whiff. Never 0; never above max.
    * competence 0 → missChanceMax; competence 1.25 → missChanceMin.
@@ -467,7 +555,10 @@ export const COMBAT_TUNING = {
     endScale: 0.55,
     critBand: 0.028,
     hitBand: 0.12,
+    /** Base spin for novice defenders; eased by defender rawCompetence × spinEase. */
     rotationDegrees: 240,
+    /** Same asymptotic spin ease as attack rhythm (defender skill → less spin). */
+    spinEase: 1.85,
     /**
      * Attacker rhythm competence (weapon + strike + SKL) pressures the defender.
      * High competence → tighter bands + faster collapse (harder dodge/parry).
@@ -556,7 +647,9 @@ export const COMBAT_TUNING = {
     endScale: 0.55,
     critBand: 0.035,
     hitBand: 0.16,
+    /** Base spin for novice blockers; eased by defender rawCompetence × spinEase. */
     rotationDegrees: 220,
+    spinEase: 1.85,
     /**
      * Maps adjusted block chance → band width.
      * chance 0 → chanceBandFloor × base; chance ~0.95 → full base × playerEase.

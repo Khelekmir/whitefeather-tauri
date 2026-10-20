@@ -1,3 +1,7 @@
+import { createDefaultWorldWeather } from '../utils/world/advanceWeather';
+import type { WorldWeather } from './world';
+
+export type { WorldWeather } from './world';
 export interface Position { x: number; y: number; }
 
 /**
@@ -38,6 +42,8 @@ export interface GameState {
   caravan: string[];
   storyFlags: Record<string, boolean>;
   lastAutosave: string;
+  /** World climate clock + conditions (°F). Body temp consumes this later. */
+  worldWeather: WorldWeather;
 }
 
 export const createEmptyGameState = (): GameState => ({
@@ -50,4 +56,5 @@ export const createEmptyGameState = (): GameState => ({
   caravan: [],
   storyFlags: {},
   lastAutosave: new Date().toISOString(),
+  worldWeather: createDefaultWorldWeather(),
 });

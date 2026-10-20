@@ -28,6 +28,11 @@ export interface ScaleRhythmWindowInput {
    * (`calcRhythmCompetence`). Defaults to 1 (no skill tax) for tests.
    */
   competence?: number;
+  /**
+   * Uncapped competence for QTE spin (defaults to competence).
+   * degrees = base / (1 + raw × spinEase) → 0 as skill → ∞.
+   */
+  rawCompetence?: number;
   /** From calcRhythmCompetence.speedFactor — eases collapse when high. */
   speedFactor?: number;
   /** From calcRhythmCompetence.luckFactor — widens crit band when high. */
@@ -38,12 +43,29 @@ const R = COMBAT_TUNING.rhythm;
 const Comp = R.competence;
 
 /**
+ * Collapsing-square spin from uncapped skill signal.
+ * Novice (0) → full baseDegrees; as skill → ∞, degrees → 0.
+ */
+export function rhythmSpinDegrees(
+  baseDegrees: number,
+  rawCompetence: number,
+  spinEase: number = R.spinEase
+): number {
+  const skill = Math.max(0, rawCompetence);
+  const ease = Math.max(0, spinEase);
+  if (!(baseDegrees > 0)) return 0;
+  if (!(ease > 0)) return baseDegrees;
+  return baseDegrees / (1 + skill * ease);
+}
+
+/**
  * Build effective QTE window from stance matchup + attacker competence.
  *
  * - windowFactor &lt; 1 (guarded) → tighter bands + faster shrink
  * - low competence → much tighter bands + faster shrink (untrained)
  * - high speed → slower shrink (easier)
  * - high luck → wider crit band only
+ * - high rawCompetence → less square spin (easier to read eclipse)
  */
 export function scaleRhythmWindow(
   input: ScaleRhythmWindowInput | number = {}
@@ -54,6 +76,7 @@ export function scaleRhythmWindow(
 
   const wf = Math.max(0.35, Math.min(1.4, opts.windowFactor ?? 1));
   const competence = Math.max(0, Math.min(1.25, opts.competence ?? 1));
+  const rawCompetence = Math.max(0, opts.rawCompetence ?? competence);
   const speedFactor = Math.max(0, Math.min(1.15, opts.speedFactor ?? 0.5));
   const luckFactor = Math.max(0, Math.min(1.15, opts.luckFactor ?? 0.5));
 
@@ -76,7 +99,7 @@ export function scaleRhythmWindow(
     endScale: R.endScale,
     critBand: Math.max(0.02, R.critBand * bandScale * luckCrit),
     hitBand: Math.max(0.05, R.hitBand * bandScale),
-    rotationDegrees: R.rotationDegrees,
+    rotationDegrees: rhythmSpinDegrees(R.rotationDegrees, rawCompetence),
     critAttackMultiplier: R.critAttackMultiplier,
     windowFactor: wf,
     competence,
@@ -91,6 +114,7 @@ export function scaleRhythmWindowFromCompetence(
   return scaleRhythmWindow({
     windowFactor,
     competence: competence.competence,
+    rawCompetence: competence.rawCompetence,
     speedFactor: competence.speedFactor,
     luckFactor: competence.luckFactor,
   });
@@ -100,6 +124,25 @@ export function scaleRhythmWindowFromCompetence(
 export function outerScaleAt(t: number, window: RhythmWindow): number {
   const u = Math.max(0, Math.min(1, t));
   return window.startScale + (window.endScale - window.startScale) * u;
+}
+
+/**
+ * Normalized time when outer scale == 1 (perfect size eclipse with inner).
+ * Spin is keyed so rotation is 0° here — squares are axis-aligned at perfect timing.
+ */
+export function perfectEclipseT(window: RhythmWindow): number {
+  const span = window.startScale - window.endScale;
+  if (!(span > 0)) return 0.5;
+  return Math.max(0, Math.min(1, (window.startScale - 1) / span));
+}
+
+/**
+ * Outer-square rotation (degrees) at normalized time t.
+ * Linear in t, zero at perfect eclipse so overlap is upright — not upright at endScale.
+ */
+export function outerRotationAt(t: number, window: RhythmWindow): number {
+  const u = Math.max(0, Math.min(1, t));
+  return window.rotationDegrees * (u - perfectEclipseT(window));
 }
 
 export function gradeOuterScale(

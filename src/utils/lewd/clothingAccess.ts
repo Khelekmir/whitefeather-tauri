@@ -8,7 +8,15 @@ import {
 import { getProtectingArmor } from '../items/resolveItem';
 import { LEWD_TUNING as T } from './lewdTuning';
 
-export type ClothingAccessMode = 'over' | 'under' | 'displace';
+/**
+ * How the actor reaches the target through clothing.
+ * - over: stimulate through the full soft stack (attenuated)
+ * - under: skip outer soft (shirt/leg); still over underwear
+ * - displace: push soft cloth aside (mutates garmentState; skin clear)
+ * - underneath: hand/mouth under all soft cloth for direct contact equal to
+ *   displace for stim/intimacy, without displacing — garments stay worn and soil
+ */
+export type ClothingAccessMode = 'over' | 'under' | 'displace' | 'underneath';
 
 export interface ClothingBarrierLayer {
   slot: ItemSlot;
@@ -18,6 +26,8 @@ export interface ClothingBarrierLayer {
   soft: boolean;
   hard: boolean;
   effectiveCov: number;
+  /** Present when mode is underneath: soft layer is worn but reached under. */
+  reachedUnder?: boolean;
 }
 
 export interface ClothingBarrier {
@@ -58,6 +68,7 @@ export function effectiveItemCoverage(
  * Query clothing barrier at a lewd target.
  * When mode is `displace` and `applyDisplace` is true (default), mutates soft layers.
  * Pass `applyDisplace: false` for UI preview without side effects.
+ * `underneath` is skin-clear like displace for soft cloth, without mutating garments.
  */
 export function clothingBarrierForLewdTarget(
   unit: DetailedUnit,
@@ -81,6 +92,7 @@ export function clothingBarrierForLewdTarget(
   const skip = mode === 'under' ? underSkipSet() : new Set<string>();
   const eps = T.clothing.clearEpsilon;
   const hardEps = T.clothing.hardBlockEpsilon;
+  const reachUnder = mode === 'underneath';
 
   // Aggregate layers across mapped body parts (union by item id, max cov).
   const byItem = new Map<string, ClothingBarrierLayer>();
@@ -133,7 +145,14 @@ export function clothingBarrierForLewdTarget(
         material: item.material,
         soft,
         hard,
+        // Underneath: soft stays worn for soil/UI; does not attenuate contact.
         effectiveCov: Math.max(prev?.effectiveCov ?? 0, eff),
+        reachedUnder:
+          reachUnder && soft
+            ? true
+            : prev?.reachedUnder
+              ? true
+              : undefined,
       };
       byItem.set(item.id, entry);
       if (hard && eff >= hardEps) hardBlocked = true;
@@ -152,6 +171,8 @@ export function clothingBarrierForLewdTarget(
   let softBarrier01 = 0;
   let barrier01 = 0;
   for (const L of layers) {
+    // Reached-under soft cloth does not block stim/intimacy (still listed for soil).
+    if (L.reachedUnder) continue;
     if (L.soft) softBarrier01 = Math.min(1, softBarrier01 + L.effectiveCov * (1 - softBarrier01));
     barrier01 = Math.min(1, barrier01 + L.effectiveCov * (1 - barrier01));
   }

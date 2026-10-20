@@ -1,6 +1,7 @@
 import type { Sex } from '../../types/characters';
 import { arousalSoftCapForErogenous } from './erogenous';
 import { bodyCommit01 } from './intimacyBond';
+import { integrateErection01 } from './maleErection';
 import { LEWD_TUNING as T } from './lewdTuning';
 
 /**
@@ -46,6 +47,11 @@ export interface EncounterArousalState {
    * High intensity on hypersens parts or a rapid re-climax builds phys discomfort.
    */
   orgasmSecondsRemaining?: number;
+  /**
+   * ♂ encounter-local erection firmness 0–1 (arousal-gated). Females stay 0.
+   * Drives precum beading; collapses under refractory.
+   */
+  erection01?: number;
   /** Cloth drip / seat-pool routing. Default standing. */
   posture?: EncounterPosture;
 }
@@ -227,6 +233,7 @@ function normalizeState(state: EncounterArousalState): {
   receptivity: number;
   refractorySecondsRemaining: number;
   orgasmSecondsRemaining: number;
+  erection01: number;
   posture: EncounterPosture;
 } {
   // Migrate legacy single-discomfort snapshots.
@@ -250,6 +257,7 @@ function normalizeState(state: EncounterArousalState): {
       state.refractorySecondsRemaining ?? 0
     ),
     orgasmSecondsRemaining: Math.max(0, state.orgasmSecondsRemaining ?? 0),
+    erection01: Math.max(0, Math.min(1, state.erection01 ?? 0)),
     posture: state.posture ?? 'standing',
   };
 }
@@ -265,6 +273,7 @@ export function createEncounterArousalState(): EncounterArousalState {
     receptivity: 1,
     refractorySecondsRemaining: 0,
     orgasmSecondsRemaining: 0,
+    erection01: 0,
     posture: 'standing',
   };
 }
@@ -301,6 +310,7 @@ export function updateEncounterArousal(
     receptivity,
     refractorySecondsRemaining,
     orgasmSecondsRemaining,
+    erection01,
     posture,
   } = normalizeState(state);
   let climaxed = false;
@@ -354,6 +364,7 @@ export function updateEncounterArousal(
       receptivity,
       refractorySecondsRemaining,
       orgasmSecondsRemaining,
+      erection01: update.sex === 'M' ? round2(erection01) : 0,
       posture,
       climaxed,
       ruined,
@@ -616,6 +627,20 @@ export function updateEncounterArousal(
     arousal = clamp100(arousal * 0.55);
   }
 
+  // ♂ erection tracks arousal/edge; refractory collapses firmness.
+  if (update.sex === 'M') {
+    const refractoryNow = refractorySecondsRemaining > 0.001;
+    erection01 = integrateErection01(
+      erection01,
+      arousal,
+      edge,
+      refractoryNow,
+      dt
+    );
+  } else {
+    erection01 = 0;
+  }
+
   const discomfort = syncComposite(discomfortPhys, discomfortPsych);
 
   return {
@@ -628,6 +653,7 @@ export function updateEncounterArousal(
     receptivity: round2(receptivity),
     refractorySecondsRemaining: round1(refractorySecondsRemaining),
     orgasmSecondsRemaining: round1(orgasmSecondsRemaining),
+    erection01: round2(erection01),
     posture,
     climaxed,
     ruined,
@@ -662,6 +688,7 @@ export function idleEncounterArousal(
     receptivity: r.receptivity,
     refractorySecondsRemaining: r.refractorySecondsRemaining,
     orgasmSecondsRemaining: r.orgasmSecondsRemaining ?? 0,
+    erection01: r.erection01 ?? 0,
     posture: r.posture ?? state.posture ?? 'standing',
   };
 }

@@ -18,8 +18,18 @@ import {
   inferSpermEntrySite,
 } from './conception';
 import { dischargeOnClimax, type FluidDischargeEvent } from './fluidDischarge';
-import { applyDischargesToRecipientSoil } from './fluidSoil';
+import {
+  applyDischargesToRecipientSoil,
+  applyMaleOwnCrotchFluid,
+} from './fluidSoil';
 import { bondFromEdge } from './intimacyBond';
+import {
+  computePrecumVolume01,
+  maleGenitalClothContext,
+  maleUnderwearSemenScore,
+  precumFlavorNote,
+} from './maleErection';
+import { LEWD_TUNING as T } from './lewdTuning';
 import {
   analyzeChannels,
   mergeResolvedChannels,
@@ -27,7 +37,6 @@ import {
   type LewdChannel,
   type ResolvedChannel,
 } from './lewdChannels';
-import { LEWD_TUNING as T } from './lewdTuning';
 import { blendOrificeSlick } from './orificeSlick';
 import { bandOutcome, outcomeLabel, type LewdOutcomeBand } from './outcomes';
 import { hormonesForUnit } from './ovulationCycle';
@@ -96,6 +105,8 @@ export interface LewdMoveResult {
   lubricationFlavor: LubricationSoilFlavor;
   /** Short log line for Lab, e.g. "beading · cloth". */
   lubricationNote: string | null;
+  /** ♂ precum / erection cloth tell this beat. */
+  precumNote: string | null;
   bodilyBlurb: string | null;
   fertileCrest01: number;
   /** Recipient after cloth/skin soil writers (caller should adopt). */
@@ -316,6 +327,76 @@ export function resolveLewdChannels(input: LewdChannelsInput): LewdMoveResult {
     testosterone: proactiveHormones?.testosterone,
   });
 
+  const maleClothCtx = maleGenitalClothContext(channels);
+  const beatQMale = Math.max(
+    0,
+    Math.min(1, (recvPsych + recvPhysio) / 2)
+  );
+
+  // ♂ precum beads into own underwear (coin-capped) once erection is up.
+  let workingProactive = proactive;
+  let precumNote: string | null = null;
+  const precumHold = Math.max(0.5, holdSeconds);
+  const posture = encounter.posture ?? 'standing';
+
+  if (recipient.sex === 'M' && allowPhysioGains) {
+    const precum = computePrecumVolume01({
+      erection01: next.erection01 ?? 0,
+      encounterArousal: next.arousal,
+      genitalContact: maleClothCtx.genitalContact,
+      holdSeconds: precumHold,
+      beatQuality01: beatQMale,
+      underwearSemenScore: maleUnderwearSemenScore(workingRecipient),
+    });
+    if (precum.volume01 > 0) {
+      workingRecipient = applyMaleOwnCrotchFluid(
+        workingRecipient,
+        'semen',
+        precum.volume01,
+        { posture }
+      );
+      precumNote = precumFlavorNote({
+        volume01: precum.volume01,
+        erection01: next.erection01 ?? 0,
+        capped: precum.capped,
+      });
+    }
+  }
+
+  if (proactive.sex === 'M') {
+    // Giver precum: genitalContact only if his penis is in the locus set.
+    const giverGenital = channels.some((ch) =>
+      /^(penis|testicles|urethra)/i.test(ch.actorPart)
+    );
+    const precum = computePrecumVolume01({
+      erection01: nextProactive.erection01 ?? 0,
+      encounterArousal: nextProactive.arousal,
+      genitalContact: giverGenital,
+      holdSeconds: precumHold,
+      beatQuality01: Math.max(
+        0,
+        Math.min(1, (giver.psychQuality + giver.physioQuality) / 2)
+      ),
+      underwearSemenScore: maleUnderwearSemenScore(workingProactive),
+    });
+    if (precum.volume01 > 0) {
+      workingProactive = applyMaleOwnCrotchFluid(
+        workingProactive,
+        'semen',
+        precum.volume01,
+        { posture: proactiveEncounter.posture ?? 'standing' }
+      );
+      const note = precumFlavorNote({
+        volume01: precum.volume01,
+        erection01: nextProactive.erection01 ?? 0,
+        capped: precum.capped,
+      });
+      if (note) {
+        precumNote = precumNote ? `${precumNote}; giver ${note}` : `giver ${note}`;
+      }
+    }
+  }
+
   const lubricationFlavor: LubricationSoilFlavor =
     secretionCloth01 >= 0.002 || secretionRatePerSec >= 0.0006
       ? lubricationFlavorFromRate(
@@ -326,14 +407,16 @@ export function resolveLewdChannels(input: LewdChannelsInput): LewdMoveResult {
   const feltForNote = recvFeltWet?.feltWetness ?? 0;
   const lubricationNote =
     lubricationFlavor === 'none'
-      ? null
+      ? precumNote
       : genitalPlay && feltForNote >= T.cycle.ambientWetnessThreshold
         ? `${word} · genital flush`
         : `${word} · cloth`;
-  const ambientLubrication = lubricationFlavor !== 'none' && secretionCloth01 >= 0.002;
+  const ambientLubrication =
+    (lubricationFlavor !== 'none' && secretionCloth01 >= 0.002) ||
+    !!precumNote;
 
   const discharges: FluidDischargeEvent[] = [];
-  if (ambientLubrication && recipient.sex === 'F') {
+  if (secretionCloth01 >= 0.002 && recipient.sex === 'F') {
     discharges.push({
       fromId: recipient.id,
       fromSex: recipient.sex,
@@ -409,6 +492,54 @@ export function resolveLewdChannels(input: LewdChannelsInput): LewdMoveResult {
     );
   }
 
+  // ♂ climax into own worn clothes when genital locus is under/underneath.
+  const CC = T.encounter.maleErection.clothedClimax;
+  if (next.climaxed && recipient.sex === 'M') {
+    const semenEvt = discharges.find(
+      (d) =>
+        d.fromId === recipient.id &&
+        d.kind === 'semen' &&
+        d.climaxIndex === next.climaxCount
+    );
+    const vol = semenEvt?.volume ?? 0.7;
+    const share = maleClothCtx.dumpIntoClothes
+      ? CC.dumpVolumeShare
+      : CC.exposedLeakShare;
+    workingRecipient = applyMaleOwnCrotchFluid(
+      workingRecipient,
+      'semen',
+      vol * share,
+      { posture }
+    );
+    if (maleClothCtx.dumpIntoClothes && semenEvt) {
+      semenEvt.note = `${semenEvt.note} · into own clothes`;
+    }
+  }
+  if (nextProactive.climaxed && proactive.sex === 'M') {
+    const giverDump = channels.some(
+      (ch) =>
+        /^(penis|testicles|urethra)/i.test(ch.actorPart) &&
+        (ch.clothingAccess === 'under' || ch.clothingAccess === 'underneath')
+    );
+    const semenEvt = discharges.find(
+      (d) =>
+        d.fromId === proactive.id &&
+        d.kind === 'semen' &&
+        d.climaxIndex === nextProactive.climaxCount
+    );
+    const vol = semenEvt?.volume ?? 0.7;
+    const share = giverDump ? CC.dumpVolumeShare : CC.exposedLeakShare;
+    workingProactive = applyMaleOwnCrotchFluid(
+      workingProactive,
+      'semen',
+      vol * share,
+      { posture: proactiveEncounter.posture ?? 'standing' }
+    );
+    if (giverDump && semenEvt) {
+      semenEvt.note = `${semenEvt.note} · into own clothes`;
+    }
+  }
+
   const band = bandOutcome(merge.primaryStim, {
     intimacyBlocked: merge.violation,
     clothingBlocked: merge.clothingBlocked,
@@ -433,11 +564,12 @@ export function resolveLewdChannels(input: LewdChannelsInput): LewdMoveResult {
     {
       encounterArousal: next.arousal,
       posture: encounter.posture ?? 'standing',
-      partner: proactive,
+      partner: workingProactive,
     }
   );
   let recipientAfterSoil = soilResult.unit;
-  const proactiveAfterSoil = soilResult.partner;
+  // Prefer soilResult.partner when mounted overflow touched him; else keep precum/climax soil.
+  const proactiveAfterSoil = soilResult.partner ?? workingProactive;
   const partnerDrip01 = soilResult.partnerDrip01;
   recipientAfterSoil = applySemenDischargesToReproduction(
     recipientAfterSoil,
@@ -467,6 +599,7 @@ export function resolveLewdChannels(input: LewdChannelsInput): LewdMoveResult {
       receptivity: next.receptivity,
       refractorySecondsRemaining: next.refractorySecondsRemaining,
       orgasmSecondsRemaining: next.orgasmSecondsRemaining ?? 0,
+      erection01: next.erection01 ?? 0,
       posture: next.posture ?? encounter.posture ?? 'standing',
     },
     proactiveEncounter: {
@@ -479,6 +612,7 @@ export function resolveLewdChannels(input: LewdChannelsInput): LewdMoveResult {
       receptivity: nextProactive.receptivity,
       refractorySecondsRemaining: nextProactive.refractorySecondsRemaining,
       orgasmSecondsRemaining: nextProactive.orgasmSecondsRemaining ?? 0,
+      erection01: nextProactive.erection01 ?? 0,
       posture: nextProactive.posture ?? proactiveEncounter.posture ?? 'standing',
     },
     climaxed: next.climaxed,
@@ -489,6 +623,7 @@ export function resolveLewdChannels(input: LewdChannelsInput): LewdMoveResult {
     ambientLubrication,
     lubricationFlavor,
     lubricationNote,
+    precumNote,
     bodilyBlurb: recvBodily?.blurb ?? null,
     fertileCrest01: recvBodily?.fertileCrest01 ?? 0,
     recipientAfterSoil,

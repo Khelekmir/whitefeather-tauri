@@ -208,6 +208,65 @@ export const SAPPHIRA_ITEMIZED_LEWD: ItemizedLewd = applyPatches('F', {
   anus: { preference: 2, prefIntensity: 1, maxIntensity: 4, sensitivity: 0.85 },
 });
 
+/** Erk — studious, shy heat; low intensity caps until trust. */
+export const ERK_ITEMIZED_LEWD: ItemizedLewd = applyPatches('M', {
+  lips: { preference: 7, prefIntensity: 2, maxIntensity: 5, sensitivity: 1.05 },
+  neckSide: { preference: 5, prefIntensity: 2, maxIntensity: 5 },
+  handPalm: { preference: 7, prefIntensity: 2, maxIntensity: 5 },
+  breast: { preference: 4, prefIntensity: 2, maxIntensity: 5 },
+  thighInner: { preference: 6, prefIntensity: 3, maxIntensity: 6 },
+  penisHead: { preference: 7, prefIntensity: 3, maxIntensity: 6 },
+  penisShaft: { preference: 6, prefIntensity: 3, maxIntensity: 6 },
+  testicles: { preference: 4, prefIntensity: 2, maxIntensity: 5 },
+  anus: { preference: 1, prefIntensity: 1, maxIntensity: 3, sensitivity: 0.85 },
+});
+
+/** Lucy — gentle monk skew; soft closeness, low pain appetite. */
+export const LUCY_ITEMIZED_LEWD: ItemizedLewd = applyPatches('F', {
+  lips: { preference: 9, prefIntensity: 2, maxIntensity: 5, sensitivity: 1.15 },
+  neckNape: { preference: 8, prefIntensity: 2, maxIntensity: 5, sensitivity: 1.1 },
+  neckSide: { preference: 7, prefIntensity: 2, maxIntensity: 5 },
+  handPalm: { preference: 8, prefIntensity: 2, maxIntensity: 5, sensitivity: 1.05 },
+  breast: { preference: 6, prefIntensity: 2, maxIntensity: 5 },
+  nipple: { preference: 6, prefIntensity: 2, maxIntensity: 5 },
+  thighInner: { preference: 6, prefIntensity: 2, maxIntensity: 5 },
+  clitoris: { preference: 7, prefIntensity: 3, maxIntensity: 6, sensitivity: 1.05 },
+  labiaMinora: { preference: 6, prefIntensity: 2, maxIntensity: 5 },
+  vaginaShallow: { preference: 6, prefIntensity: 3, maxIntensity: 6 },
+  vaginaDeep: { preference: 4, prefIntensity: 2, maxIntensity: 5, sensitivity: 0.9 },
+  anus: { preference: 1, prefIntensity: 1, maxIntensity: 3, sensitivity: 0.8 },
+  buttockMain: { preference: 5, prefIntensity: 2, maxIntensity: 5 },
+});
+
+/** Black Fang shaman (M) — cold appetite, mid intensity, little tenderness. */
+export const BLACKFANG_SHAMAN_M_ITEMIZED_LEWD: ItemizedLewd = applyPatches('M', {
+  lips: { preference: 4, prefIntensity: 3, maxIntensity: 6 },
+  neckSide: { preference: 5, prefIntensity: 3, maxIntensity: 6 },
+  handPalm: { preference: 5, prefIntensity: 3, maxIntensity: 6 },
+  breast: { preference: 5, prefIntensity: 4, maxIntensity: 7 },
+  thighInner: { preference: 6, prefIntensity: 4, maxIntensity: 7 },
+  penisHead: { preference: 7, prefIntensity: 4, maxIntensity: 7 },
+  penisShaft: { preference: 6, prefIntensity: 4, maxIntensity: 7 },
+  testicles: { preference: 4, prefIntensity: 3, maxIntensity: 6 },
+  anus: { preference: 3, prefIntensity: 3, maxIntensity: 5, sensitivity: 0.95 },
+});
+
+/** Black Fang shaman (F) — same cold register, female anatomy. */
+export const BLACKFANG_SHAMAN_F_ITEMIZED_LEWD: ItemizedLewd = applyPatches('F', {
+  lips: { preference: 4, prefIntensity: 3, maxIntensity: 6 },
+  neckSide: { preference: 5, prefIntensity: 3, maxIntensity: 6 },
+  handPalm: { preference: 5, prefIntensity: 3, maxIntensity: 6 },
+  breast: { preference: 6, prefIntensity: 4, maxIntensity: 7 },
+  nipple: { preference: 6, prefIntensity: 4, maxIntensity: 7 },
+  thighInner: { preference: 6, prefIntensity: 4, maxIntensity: 7 },
+  clitoris: { preference: 7, prefIntensity: 4, maxIntensity: 7 },
+  labiaMinora: { preference: 6, prefIntensity: 3, maxIntensity: 6 },
+  vaginaShallow: { preference: 6, prefIntensity: 4, maxIntensity: 7 },
+  vaginaDeep: { preference: 5, prefIntensity: 3, maxIntensity: 6 },
+  anus: { preference: 3, prefIntensity: 3, maxIntensity: 5, sensitivity: 0.95 },
+  buttockMain: { preference: 5, prefIntensity: 3, maxIntensity: 6 },
+});
+
 export const CAST_ITEMIZED_LEWD: Record<string, ItemizedLewd> = {
   unit_amberyl: AMBERYL_ITEMIZED_LEWD,
   unit_sain: SAIN_ITEMIZED_LEWD,
@@ -221,6 +280,10 @@ export const CAST_ITEMIZED_LEWD: Record<string, ItemizedLewd> = {
   unit_dorcas: DORCAS_ITEMIZED_LEWD,
   unit_natalie: NATALIE_ITEMIZED_LEWD,
   unit_brigand: BRIGAND_ITEMIZED_LEWD,
+  unit_erk: ERK_ITEMIZED_LEWD,
+  unit_lucy: LUCY_ITEMIZED_LEWD,
+  unit_blackfang_shaman_m: BLACKFANG_SHAMAN_M_ITEMIZED_LEWD,
+  unit_blackfang_shaman_f: BLACKFANG_SHAMAN_F_ITEMIZED_LEWD,
 };
 
 export function itemizedLewdForCastId(id: string): ItemizedLewd | undefined {

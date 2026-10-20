@@ -7,6 +7,7 @@ import Battleground from './Battleground';
 import Playground from './Playground';
 import SocialLab from './SocialLab';
 import LewdLab from './LewdLab';
+import MagicQteLab from './MagicQteLab';
 import { useGameStore } from './store/gameStore';
 
 function TitleScreen() {
@@ -45,6 +46,9 @@ function TitleScreen() {
         </Link>
         <Link to="/lewd" style={menuButtonStyle}>
           Lewd Lab
+        </Link>
+        <Link to="/magic-qte" style={menuButtonStyle}>
+          Magic QTE Lab
         </Link>
       </div>
 
@@ -87,6 +91,7 @@ function App() {
         <Route path="/battleground" element={<Battleground />} />
         <Route path="/social" element={<SocialLab />} />
         <Route path="/lewd" element={<LewdLab />} />
+        <Route path="/magic-qte" element={<MagicQteLab />} />
         <Route path="/playground" element={<Playground />} />
       </Routes>
     </Router>

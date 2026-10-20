@@ -43,6 +43,11 @@ export interface RhythmCompetenceBreakdown {
    * Includes sensory focus (eyes/ears accuracy × concussion skill).
    */
   competence: number;
+  /**
+   * Uncapped competence blend (same inputs, no 1.25 ceiling).
+   * Drives QTE square spin: degrees → 0 as skill → ∞.
+   */
+  rawCompetence: number;
   /** Concussion skill mult baked into competence (1 = clear). */
   sensorySkillMult: number;
   /** Eyes/ears accuracy mult baked into competence (1 = clear). */
@@ -183,9 +188,10 @@ export function calcRhythmCompetence(
     (blended + C.baseSkillWeight * baseSkillFactor) * offhandSkillFactor;
   const sensory = calcSensoryPerformance(attacker.combatStats.itemizedHealth);
   // Eyes/ears + concussion impair skill-gated placement (melee has no separate accuracy roll).
-  const competence = roundToThousandths(
-    Math.max(0, Math.min(1.25, withSkill * sensory.focusMult))
+  const rawCompetence = roundToThousandths(
+    Math.max(0, withSkill * sensory.focusMult)
   );
+  const competence = roundToThousandths(Math.min(1.25, rawCompetence));
 
   return {
     weaponType,
@@ -196,6 +202,7 @@ export function calcRhythmCompetence(
     speedFactor,
     luckFactor,
     competence,
+    rawCompetence,
     sensorySkillMult: sensory.skillMult,
     sensoryAccuracyMult: sensory.accuracyMult,
     offhandSkillFactor,

@@ -12,6 +12,7 @@ export const WEAPON_FAMILY_IDS = [
   'blunt',
   'polearms',
   'bows',
+  'tomes',
   'shield',
   'unarmed',
 ] as const;
@@ -25,6 +26,7 @@ export const WEAPON_FAMILIES: Record<WeaponFamilyId, readonly WeaponTypeId[]> = 
   blunt: ['1hMace', '2hMace', 'flail', 'staff'],
   polearms: ['lance', 'javelin', 'ilianLance'],
   bows: ['shortbow', 'longbow', 'recurveBow'],
+  tomes: ['anima', 'light', 'dark', 'staffMagic'],
   shield: ['shield'],
   unarmed: ['unequipped'],
 };

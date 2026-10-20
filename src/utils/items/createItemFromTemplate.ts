@@ -101,6 +101,7 @@ export function createItemFromTemplate(
     description: template.description,
     material: template.material,
     weaponType: template.weaponType,
+    spellId: template.spellId,
     shieldType: template.shieldType,
     projectileMass: template.projectileMass,
     tipFactor: template.tipFactor,

@@ -58,7 +58,9 @@ export interface LewdChannel {
   remainingSeconds?: number;
   /**
    * How the actor reaches the target through clothing.
-   * over = all layers; under = skip outer soft (shirt/leg); displace = push aside then touch.
+   * over = all layers; under = skip outer soft (shirt/leg);
+   * underneath = direct under all soft cloth (stim like displace; cloth stays + soils);
+   * displace = push aside then touch.
    */
   clothingAccess?: ClothingAccessMode;
 }

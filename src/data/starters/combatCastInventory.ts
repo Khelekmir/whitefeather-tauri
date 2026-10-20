@@ -19,7 +19,11 @@ export type CombatCastId =
   | 'unit_matthew'
   | 'unit_dorcas'
   | 'unit_natalie'
-  | 'unit_brigand';
+  | 'unit_brigand'
+  | 'unit_erk'
+  | 'unit_lucy'
+  | 'unit_blackfang_shaman_m'
+  | 'unit_blackfang_shaman_f';
 
 type SlotTemplateMap = Partial<Record<ItemSlot, string>>;
 
@@ -34,9 +38,10 @@ type SlotWearMap = Partial<Record<ItemSlot, number>>;
 
 /** templateId per worn slot — unequipped slots omitted (null). */
 const STARTER_LOADOUTS: Record<CombatCastId, SlotTemplateMap> = {
+  // Cloak sizes: medium = military, small = civilian, large = robed casters/clerics.
   unit_amberyl: {
     head: 'wool-hood',
-    back: 'wool-cloak',
+    back: 'wool-cloak-medium',
     shirt: 'linen-tunic-sand',
     undershirt: 'fine-linen-undershirt',
     hand: 'doeskin-gloves',
@@ -50,7 +55,7 @@ const STARTER_LOADOUTS: Record<CombatCastId, SlotTemplateMap> = {
   unit_sain: {
     head: 'linen-headband',
     shoulder: 'caelin-pauldrons',
-    back: 'wool-cloak',
+    back: 'wool-cloak-medium',
     chest: 'caelin-breastplate',
     shirt: 'linen-tunic',
     wrist: 'steel-bracers',
@@ -64,7 +69,7 @@ const STARTER_LOADOUTS: Record<CombatCastId, SlotTemplateMap> = {
   },
   unit_lyn: {
     head: 'leather-hair-tie',
-    back: 'wool-cloak',
+    back: 'wool-cloak-medium',
     shirt: 'fine-sacaen-tunic',
     undershirt: 'linen-breastcloth',
     wrist: 'sacaen-bracelets',
@@ -76,7 +81,7 @@ const STARTER_LOADOUTS: Record<CombatCastId, SlotTemplateMap> = {
   },
   unit_kent: {
     shoulder: 'caelin-pauldrons',
-    back: 'wool-cloak',
+    back: 'wool-cloak-medium',
     chest: 'caelin-breastplate',
     shirt: 'linen-tunic',
     wrist: 'steel-bracers',
@@ -91,7 +96,7 @@ const STARTER_LOADOUTS: Record<CombatCastId, SlotTemplateMap> = {
   },
   unit_serra: {
     head: 'silk-twintail-ties',
-    back: 'wool-cloak',
+    back: 'wool-cloak-large',
     shirt: 'fine-linen-dress',
     undershirt: 'cotton-chemise',
     hand: 'fine-linen-gloves',
@@ -103,7 +108,7 @@ const STARTER_LOADOUTS: Record<CombatCastId, SlotTemplateMap> = {
   unit_florina: {
     head: 'ilian-circlet',
     shoulder: 'ilian-pauldrons',
-    back: 'wool-cloak',
+    back: 'wool-cloak-medium',
     chest: 'ilian-breastplate',
     shirt: 'ilian-wool-tunic-short',
     undershirt: 'ilian-linen-breastcloth',
@@ -116,7 +121,7 @@ const STARTER_LOADOUTS: Record<CombatCastId, SlotTemplateMap> = {
   // Archer — light kit, two-hand shortbow (empty offhand).
   unit_wil: {
     head: 'linen-headband',
-    back: 'wool-cloak',
+    back: 'wool-cloak-medium',
     shirt: 'linen-tunic',
     undershirt: 'male-linen-undershirt',
     hand: 'doeskin-gloves',
@@ -129,7 +134,7 @@ const STARTER_LOADOUTS: Record<CombatCastId, SlotTemplateMap> = {
   // Noble archer — soft travel clothes + hunting recurve.
   unit_sapphira: {
     head: 'silk-twintail-ties',
-    back: 'wool-cloak',
+    back: 'wool-cloak-medium',
     shirt: 'fine-linen-dress',
     undershirt: 'cotton-chemise',
     hand: 'fine-linen-gloves',
@@ -141,7 +146,7 @@ const STARTER_LOADOUTS: Record<CombatCastId, SlotTemplateMap> = {
   // Dagger tester — soft kit, no breastplate (organ pierce lab).
   unit_matthew: {
     head: 'linen-headband',
-    back: 'wool-cloak',
+    back: 'wool-cloak-medium',
     shirt: 'linen-tunic',
     undershirt: 'male-linen-undershirt',
     hand: 'doeskin-gloves',
@@ -154,7 +159,7 @@ const STARTER_LOADOUTS: Record<CombatCastId, SlotTemplateMap> = {
   // Village fighter — soft leather/wool kit, iron hand axe (empty offhand → two-hand grip).
   unit_dorcas: {
     head: 'linen-headband',
-    back: 'wool-cloak',
+    back: 'wool-cloak-medium',
     shirt: 'linen-tunic',
     undershirt: 'male-linen-undershirt',
     hand: 'leather-gloves',
@@ -166,7 +171,7 @@ const STARTER_LOADOUTS: Record<CombatCastId, SlotTemplateMap> = {
   },
   // Civilian caregiver — soft dress, no weapon; limp-friendly soft shoes.
   unit_natalie: {
-    back: 'wool-cloak',
+    back: 'wool-cloak-small',
     shirt: 'linen-tunic-sand',
     undershirt: 'cotton-chemise',
     waist: 'linen-sash',
@@ -176,7 +181,7 @@ const STARTER_LOADOUTS: Record<CombatCastId, SlotTemplateMap> = {
   // Generic brigand — mail hauberk + ragged soft kit, two-hand greataxe (mail glance tester).
   unit_brigand: {
     head: 'linen-headband',
-    back: 'wool-cloak',
+    back: 'wool-cloak-medium',
     chest: 'iron-chain-hauberk',
     shirt: 'linen-tunic',
     undershirt: 'male-linen-undershirt',
@@ -186,6 +191,56 @@ const STARTER_LOADOUTS: Record<CombatCastId, SlotTemplateMap> = {
     leg: 'wool-pants',
     foot: 'leather-boots',
     mainhand: 'brigand-greataxe',
+  },
+  // Etrurian mage — soft scholar kit, Fire anima tome (empty offhand).
+  unit_erk: {
+    head: 'linen-headband',
+    back: 'wool-cloak-large',
+    shirt: 'linen-tunic-sand',
+    undershirt: 'male-linen-undershirt',
+    hand: 'doeskin-gloves',
+    waist: 'leather-belt',
+    underwear: 'linen-underwear',
+    leg: 'doeskin-wool-pants',
+    foot: 'doeskin-leather-boots',
+    mainhand: 'fire-tome',
+  },
+  // Female Lucius skew — soft acolyte dress, Shine light tome.
+  unit_lucy: {
+    head: 'silk-twintail-ties',
+    back: 'wool-cloak-large',
+    shirt: 'fine-linen-dress',
+    undershirt: 'cotton-chemise',
+    hand: 'fine-linen-gloves',
+    waist: 'fine-linen-sash',
+    underwear: 'cotton-underwear',
+    foot: 'soft-leather-shoes',
+    mainhand: 'shine-tome',
+  },
+  // Black Fang shaman (M) — dark robe + Flux; combat magic tester.
+  unit_blackfang_shaman_m: {
+    head: 'linen-headband',
+    back: 'wool-cloak-large',
+    shirt: 'black-fang-robe',
+    undershirt: 'male-linen-undershirt',
+    hand: 'doeskin-gloves',
+    waist: 'leather-belt',
+    underwear: 'linen-underwear',
+    leg: 'wool-pants',
+    foot: 'soft-leather-shoes',
+    mainhand: 'flux-tome',
+  },
+  // Black Fang shaman (F) — same kit family, female soft layers.
+  unit_blackfang_shaman_f: {
+    head: 'linen-headband',
+    back: 'wool-cloak-large',
+    shirt: 'black-fang-robe',
+    undershirt: 'cotton-chemise',
+    hand: 'fine-linen-gloves',
+    waist: 'linen-sash',
+    underwear: 'cotton-underwear',
+    foot: 'soft-leather-shoes',
+    mainhand: 'flux-tome',
   },
 };
 
@@ -291,6 +346,38 @@ const STARTER_WEAR: Record<CombatCastId, SlotWearMap> = {
     leg: 0.75,
     shirt: 0.78,
     back: 0.82,
+  },
+  // Study halls + road dust — soft kit, lightly used primer
+  unit_erk: {
+    foot: 0.82,
+    hand: 0.9,
+    shirt: 0.9,
+    back: 0.94,
+    mainhand: 0.88,
+  },
+  // Quiet travel — hem dust, soft shoes
+  unit_lucy: {
+    foot: 0.76,
+    shirt: 0.88,
+    back: 0.92,
+    hand: 0.94,
+    mainhand: 0.9,
+  },
+  // Fang road work — robe hem dirty, tome boards scuffed
+  unit_blackfang_shaman_m: {
+    foot: 0.7,
+    shirt: 0.8,
+    back: 0.85,
+    hand: 0.86,
+    mainhand: 0.78,
+    leg: 0.82,
+  },
+  unit_blackfang_shaman_f: {
+    foot: 0.72,
+    shirt: 0.82,
+    back: 0.86,
+    hand: 0.88,
+    mainhand: 0.8,
   },
 };
 
@@ -421,6 +508,10 @@ export const COMBAT_CAST_INVENTORIES: Record<CombatCastId, CharacterInventoryKit
   unit_dorcas: buildKit('unit_dorcas'),
   unit_natalie: buildKit('unit_natalie'),
   unit_brigand: buildKit('unit_brigand'),
+  unit_erk: buildKit('unit_erk'),
+  unit_lucy: buildKit('unit_lucy'),
+  unit_blackfang_shaman_m: buildKit('unit_blackfang_shaman_m'),
+  unit_blackfang_shaman_f: buildKit('unit_blackfang_shaman_f'),
 };
 
 /** Flat bank of every starter instance (for lookup by id). */

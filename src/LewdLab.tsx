@@ -83,6 +83,7 @@ import {
   wrapCycleHour,
 } from './utils/lewd/ovulationCycle';
 import { resolveLewdChannels } from './utils/lewd/resolveLewdMove';
+import { describeUnderwearWetness } from './utils/lewd/undergarmentWetnessFlavor';
 import { expandPreload } from './utils/lewd/expandPreload';
 import {
   clothingBarrierForLewdTarget,
@@ -1137,11 +1138,32 @@ function LewdLab() {
                 {(encounter.orgasmSecondsRemaining ?? 0) > 0.05
                   ? ` · hypersens ${encounter.orgasmSecondsRemaining!.toFixed(0)}s`
                   : ''}
+                {recipient?.sex === 'M'
+                  ? ` · erection ${Math.round((encounter.erection01 ?? 0) * 100)}%`
+                  : ''}
                 {recipient?.sex === 'M' &&
                 (encounter.refractorySecondsRemaining ?? 0) > 0
                   ? ` · refractory ${encounter.refractorySecondsRemaining.toFixed(0)}s`
                   : ''}
               </div>
+              {recipient?.sex === 'M' ? (
+                <>
+                  <Meter
+                    label="Erection"
+                    value={(encounter.erection01 ?? 0) * 100}
+                    max={100}
+                    color="#93c5fd"
+                  />
+                  <p style={{ margin: '4px 0 0', fontSize: 11, opacity: 0.65 }}>
+                    {(() => {
+                      const w = describeUnderwearWetness(recipient);
+                      return w.size === 'none'
+                        ? 'underwear dry'
+                        : `underwear ${w.label}`;
+                    })()}
+                  </p>
+                </>
+              ) : null}
             </div>
             <div>
               <h3 style={{ margin: '0 0 8px', fontSize: 12, opacity: 0.7, letterSpacing: 0.4 }}>
@@ -1178,16 +1200,39 @@ function LewdLab() {
               <div style={{ fontSize: 11, opacity: 0.65 }}>
                 Climaxes {proactiveEncounter.climaxCount} · recv ×
                 {proactiveEncounter.receptivity.toFixed(2)}
+                {proactive?.sex === 'M'
+                  ? ` · erection ${Math.round((proactiveEncounter.erection01 ?? 0) * 100)}%`
+                  : ''}
                 {proactive?.sex === 'M' &&
                 (proactiveEncounter.refractorySecondsRemaining ?? 0) > 0
                   ? ` · refractory ${proactiveEncounter.refractorySecondsRemaining.toFixed(0)}s`
                   : ''}
               </div>
+              {proactive?.sex === 'M' ? (
+                <>
+                  <Meter
+                    label="Erection"
+                    value={(proactiveEncounter.erection01 ?? 0) * 100}
+                    max={100}
+                    color="#93c5fd"
+                  />
+                  <p style={{ margin: '4px 0 0', fontSize: 11, opacity: 0.65 }}>
+                    {(() => {
+                      const w = describeUnderwearWetness(proactive);
+                      return w.size === 'none'
+                        ? 'underwear dry'
+                        : `underwear ${w.label}`;
+                    })()}
+                  </p>
+                </>
+              ) : null}
             </div>
           </div>
           <div style={{ fontSize: 11, opacity: 0.55, marginBottom: 10 }}>
             Proactive orgasm / semen discharge stubs feed impregnation later. Male climax
-            starts a refractory window (no new edge/orgasm). Cold push soft-gates deep acts.
+            starts a refractory window (no new edge/orgasm). Erection tracks encounter
+            arousal; precum beads a coin-capped damp unless he climaxes into under/underneath
+            genital clothes. Cold push soft-gates deep acts.
           </div>
           <div style={{ marginBottom: 10 }}>{performButton()}</div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
@@ -1982,6 +2027,9 @@ function LewdLab() {
                   >
                     <option value="over">Over clothes</option>
                     <option value="under">Under outer layer</option>
+                    <option value="underneath">
+                      Underneath (direct; cloth soils)
+                    </option>
                     <option value="displace">Displace / push aside</option>
                   </select>
                 </label>
@@ -2002,7 +2050,9 @@ function LewdLab() {
                           ? barrier.layers
                               .map(
                                 (l) =>
-                                  `${l.slot} ${(l.effectiveCov * 100).toFixed(0)}%`
+                                  `${l.slot} ${(l.effectiveCov * 100).toFixed(0)}%${
+                                    l.reachedUnder ? ' under' : ''
+                                  }`
                               )
                               .join(' + ')
                           : 'bare';

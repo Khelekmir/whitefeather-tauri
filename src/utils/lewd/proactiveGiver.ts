@@ -23,6 +23,51 @@ export interface ProactiveGiverStim {
   pushRequiredArousal: number;
 }
 
+type BodilyActorKind = 'mouth' | 'breast' | 'genital' | null;
+
+/**
+ * Actor parts that deliver real proactive physio (not just giving psych).
+ * Mouth → kiss parity; breast/nipple → breast-as-contact; genital → grind/frot.
+ */
+export function proactiveBodilyActorKind(actorPart: string): BodilyActorKind {
+  if (
+    /^(lips|tongue|teeth|mouth)/i.test(actorPart) ||
+    actorPart === 'lips' ||
+    actorPart === 'tongue' ||
+    actorPart === 'teeth'
+  ) {
+    return 'mouth';
+  }
+  if (
+    /^(breast|areola|nipple)/i.test(actorPart) ||
+    actorPart === 'breast' ||
+    actorPart === 'areola' ||
+    actorPart === 'nipple'
+  ) {
+    return 'breast';
+  }
+  const limb = attentionLimbForActorPart(actorPart);
+  if (
+    limb === 'genitals' ||
+    /^(penis|vagina|clitoris|mons|testicles|anus|rectum)/i.test(actorPart)
+  ) {
+    return 'genital';
+  }
+  return null;
+}
+
+function bodilyPhysioMult(kind: Exclude<BodilyActorKind, null>): number {
+  const P = T.proactive;
+  switch (kind) {
+    case 'mouth':
+      return P.mouthPhysioMult;
+    case 'breast':
+      return P.breastPhysioMult;
+    case 'genital':
+      return P.genitalPhysioMult;
+  }
+}
+
 /**
  * How ready the proactive partner is to *push* intimacy this beat.
  * Low desire + cold arousal → soft/hard unready on deep acts.
@@ -51,6 +96,7 @@ export function evaluateProactivePush(
   let physio = 0;
   let ero = 0;
   let maxActIntimacy = 0;
+  const P = T.proactive;
 
   for (const ch of channels) {
     const action = getLewdAction(ch.actionId);
@@ -65,7 +111,6 @@ export function evaluateProactivePush(
       0,
       1 - Math.abs(ch.intensity - prefInt) / 6
     );
-    const limb = attentionLimbForActorPart(ch.actorPart);
     const catalogSens = actorBit?.sensitivity ?? 4;
     const sensMult = partRow?.sensitivity ?? 1;
     const rank = erogenousRank(catalogSens * sensMult);
@@ -77,26 +122,24 @@ export function evaluateProactivePush(
       (0.55 + 0.45 * intensityMatch);
     psych = Math.max(psych, givingPsych);
 
-    const genitalActor =
-      limb === 'genitals' ||
-      /^(penis|vagina|clitoris|mons|testicles)/i.test(ch.actorPart);
-    if (genitalActor) {
+    const bodily = proactiveBodilyActorKind(ch.actorPart);
+    if (bodily) {
       const p =
         rank *
         (0.35 + 0.65 * (ch.intensity / 10)) *
         (0.5 + 0.5 * pref) *
-        desireCtx;
+        desireCtx *
+        bodilyPhysioMult(bodily);
       if (p > physio) {
         physio = p;
         ero = rank;
       }
     } else {
-      // Mouth / hands: mostly psych for the giver; tiny erogenous from lips etc.
-      ero = Math.max(ero, rank * 0.28);
+      // Hands / feet / other: mostly psych; small erogenous residual.
+      ero = Math.max(ero, rank * P.nonBodilyErogenousMult);
     }
   }
 
-  const P = T.proactive;
   const pushWillingness = Math.max(
     0,
     Math.min(

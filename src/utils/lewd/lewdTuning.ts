@@ -204,6 +204,51 @@ export const LEWD_TUNING = {
     },
 
     /**
+     * ♂ encounter-local erection + pre-ejaculate (mirrors ♀ wetness erotic reward).
+     * Erection tracks arousal; precum beads tiny cloth spots (coin-capped) unless
+     * he climaxes into under/underneath genital stim (full load in worn clothes).
+     */
+    maleErection: {
+      /** Arousal below: target firmness ~0 / decay. */
+      arousalOnset: 20,
+      /** Arousal at/above: approach full erection. */
+      arousalFull: 55,
+      /** Edge share toward firmness target (0–1 edge → this weight). */
+      edgeFirmWeight: 0.18,
+      /** Approach rate toward target firmness /sec. */
+      risePerSec: 0.28,
+      /** Fall rate when target drops / idle. */
+      fallPerSec: 0.14,
+      /** Extra fall mult while refractory. */
+      refractoryFallMult: 2.8,
+      /** Firmness bands for Lab / prose (erection01 thresholds). */
+      bandSwelling: 0.22,
+      bandFirm: 0.55,
+      bandRigid: 0.82,
+      precum: {
+        /** Need at least this erection01 to bead. */
+        minErection01: 0.32,
+        secreteArousalBelow: 38,
+        secreteArousalFull: 75,
+        baseBeadPerSec: 0.0032,
+        genitalBeadMult: 2.1,
+        nonGenitalBeadMult: 0.5,
+        /**
+         * Soft cap on underwear semen-channel wet score from precum this scene.
+         * coin band is &lt;28 — stay at/under a small coin.
+         */
+        clothScoreCap: 22,
+        beatQualityWeight: 0.25,
+      },
+      clothedClimax: {
+        /** Own-cloth volume share when climax + genital under/underneath. */
+        dumpVolumeShare: 0.92,
+        /** Tiny own-cloth leak when climax while exposed / over / displace. */
+        exposedLeakShare: 0.15, // increased from 0.6 to 0.15 manually
+      },
+    },
+
+    /**
      * Dual discomfort (Option A):
      * - Phys: nociception / sting / overstep force
      * - Psych: reluctance, unready push, violation, cold pain
@@ -478,8 +523,9 @@ export const LEWD_TUNING = {
   },
 
   /**
-   * Clothing barriers for lewd contact (over / under / displace).
+   * Clothing barriers for lewd contact (over / under / underneath / displace).
    * Soft layers attenuate physio and ease intimacy requirement; hard armor blocks skin/orifice.
+   * `underneath` = displace-tier contact without garment displace (cloth soils as worn).
    */
   clothing: {
     /** Physio quality mult loss at softBarrier01 = 1 (through full soft stack). */
@@ -598,6 +644,52 @@ export const LEWD_TUNING = {
     arousalDrip: {
       soilFromWetnessThreshold: 0.42,
       amountPerHourAtCap: 0.12,
+    },
+    /**
+     * Overworld (Pass-Time) discharge streams — not encounter arousal.
+     * Leukorrhea / sleep pool / menstrual curve. Sweat deferred (whole-body later).
+     * See memory topic whitefeather-overworld-wetness.md.
+     */
+    overworldDischarge: {
+      /**
+       * Baseline leukorrhea volume01/h at mucus mult 1.0 and trait mult 1.0.
+       * eggWhite (~1.45×) over ~8–12h → toward coin damp without arousal.
+       */
+      leukorrheaBasePerHour: 0.028,
+      /** Share of leukorrhea retained as light orifice film (rest → cloth). */
+      leukorrheaOrificeRetainShare: 0.18,
+      /** Mucus-band mults on leukorrhea production. */
+      leukorrheaByMucus: {
+        bloody: 0.15,
+        scarce: 0.35,
+        sticky: 0.75,
+        eggWhite: 1.45,
+        cloudy: 0.7,
+        dry: 0.25,
+      } as Record<string, number>,
+      /**
+       * Cloth mult while sleeping / recumbent (pooling at introitus).
+       * Does not raise menstrual blood rate.
+       */
+      sleepPoolMult: 1.55,
+      /**
+       * Peak menstrual fluid volume01/h (day-curve × menstrualFlowMult).
+       * Day curve averages ~0.7 over a 5-day bleed → total near prior flat 0.08×120.
+       */
+      menstrualPeakPerHour: 0.11,
+      /**
+       * Bleed-day intensity curve keyed by floor(cycle day) while menstrual/bloody.
+       * Index 0 = first bleed day; last entry repeats for longer bleeds.
+       */
+      menstrualDayCurve: [1.15, 1.0, 0.72, 0.42, 0.22, 0.1],
+      /**
+       * Default period-cloth absorb capacity in soil points (wet-score family).
+       * ~40 ≈ several hours of average flow before change-out / bleedthrough.
+       * Catalog items will override. Bleedthrough → underwear blood when full.
+       */
+      periodClothDefaultCapacity: 40,
+      /** Underwear blood intensity at/above this reads as visible bleedthrough stain. */
+      bleedThroughVisibleAt: 12,
     },
     /**
      * Legacy scene soil flavor gates; primary in-scene cloth damp is secretion weep.
@@ -757,6 +849,16 @@ export const LEWD_TUNING = {
     /** Recipient-side quality tax when proactive is forcing a cold push. */
     coldPushRecipientPsychMult: 0.55,
     coldPushRecipientPhysioMult: 0.7,
+    /**
+     * Physio when the *actor* part is bodily (mouth / breast / genital),
+     * so kissing feels as physiological when giving as when receiving.
+     * Hands/feet still stay psych-led with a small erogenous residual.
+     */
+    mouthPhysioMult: 1.0,
+    breastPhysioMult: 0.92,
+    genitalPhysioMult: 1.0,
+    /** Residual erogenous share for non-bodily actor parts (hands, etc.). */
+    nonBodilyErogenousMult: 0.28,
   },
 
   defaultHoldSeconds: 8,

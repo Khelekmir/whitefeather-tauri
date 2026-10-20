@@ -7,7 +7,7 @@ import {
   evaluateStanceMatchupFromSkills,
   type StanceMatchupResult,
 } from './calcStanceMatchup';
-import type { RhythmWindow } from './attackRhythm';
+import { rhythmSpinDegrees, type RhythmWindow } from './attackRhythm';
 import { calcBloodCombatPenalties, getBloodStatus } from './bloodVolume';
 import { calcPerformanceFromItemized } from './performanceFromItemized';
 import { calcRhythmCompetence } from './rhythmCompetence';
@@ -133,6 +133,22 @@ export function scaleDefenseRhythmWindow(
     (1 - tun.attackerCompetenceBandFloor) * ((1.25 - competence) / 1.25);
   const skillHaste = 1 + competence * tun.attackerCompetenceHaste;
 
+  // Defender skill eases square spin (independent of attacker band pressure).
+  const defMainId = defender.equipment.mainhand;
+  const defMain = defMainId ? input.itemsById[defMainId] : null;
+  const defWeaponType =
+    verb === 'dodge'
+      ? 'unequipped'
+      : defMain?.weaponType ??
+        (defMain ? getItemTemplate(defMain.templateId)?.weaponType : undefined) ??
+        'unequipped';
+  const defComp = calcRhythmCompetence(
+    defender,
+    defWeaponType,
+    defender.combatStats.currentStance.strike,
+    { itemsById: input.itemsById }
+  );
+
   let durationMs: number = Math.round(tun.durationMs / skillHaste);
   let critBand: number = tun.critBand * competenceBandScale;
   let hitBand: number = tun.hitBand * competenceBandScale;
@@ -210,7 +226,11 @@ export function scaleDefenseRhythmWindow(
     endScale: tun.endScale,
     critBand: Math.max(0.015, critBand),
     hitBand: Math.max(0.04, hitBand),
-    rotationDegrees: tun.rotationDegrees,
+    rotationDegrees: rhythmSpinDegrees(
+      tun.rotationDegrees,
+      defComp.rawCompetence,
+      tun.spinEase
+    ),
     critAttackMultiplier: 1,
     windowFactor: verb === 'parry' ? matchup.parryWindowFactor : 1,
     /** Echo: attacker competence pressuring this defense window. */
@@ -297,6 +317,20 @@ export function scaleBlockRhythmWindow(
     (1 - tun.attackerCompetenceBandFloor) * ((1.25 - competence) / 1.25);
   const skillHaste = 1 + competence * tun.attackerCompetenceHaste;
 
+  // Defender skill eases block-QTE spin.
+  const defMainId = defender.equipment.mainhand;
+  const defMain = defMainId ? itemsById[defMainId] : null;
+  const defWeaponType =
+    defMain?.weaponType ??
+    (defMain ? getItemTemplate(defMain.templateId)?.weaponType : undefined) ??
+    'unequipped';
+  const defComp = calcRhythmCompetence(
+    defender,
+    defWeaponType,
+    defender.combatStats.currentStance.strike,
+    { itemsById }
+  );
+
   const chanceNorm = Math.max(
     0,
     Math.min(1, adjustedChance / Math.max(0.05, tun.chanceFullAt))
@@ -343,7 +377,11 @@ export function scaleBlockRhythmWindow(
     endScale: tun.endScale,
     critBand: Math.max(0.012, critBand),
     hitBand: Math.max(0.035, hitBand),
-    rotationDegrees: tun.rotationDegrees,
+    rotationDegrees: rhythmSpinDegrees(
+      tun.rotationDegrees,
+      defComp.rawCompetence,
+      tun.spinEase
+    ),
     critAttackMultiplier: 1,
     windowFactor: bandFromChance * ease * stanceBandMult,
     competence,

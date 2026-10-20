@@ -145,6 +145,39 @@ export const WEAPON_TYPES_INFO: Record<string, WeaponTypeInfo> = {
     twoHanded: true,
     damageType: 'blunt',
   },
+  /**
+   * Tomes — light held books; power stub until MAG replaces STR in attack math.
+   * twoHanded: casting posture (empty offhand), like bows.
+   */
+  anima: {
+    sizeFactor: 0.6,
+    powerMultiplier: 1.1,
+    range: 2,
+    twoHanded: true,
+    damageType: 'magical',
+  },
+  light: {
+    sizeFactor: 0.55,
+    powerMultiplier: 1.05,
+    range: 2,
+    twoHanded: true,
+    damageType: 'magical',
+  },
+  dark: {
+    sizeFactor: 0.65,
+    powerMultiplier: 1.15,
+    range: 2,
+    twoHanded: true,
+    damageType: 'magical',
+  },
+  /** Staff magic school — casting channel; distinct from blunt melee `staff`. */
+  staffMagic: {
+    sizeFactor: 0.7,
+    powerMultiplier: 1.0,
+    range: 1,
+    twoHanded: true,
+    damageType: 'magical',
+  },
   shield: {
     sizeFactor: 1.2,
     powerMultiplier: 0.4,

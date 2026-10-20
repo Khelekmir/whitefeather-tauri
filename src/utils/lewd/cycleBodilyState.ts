@@ -11,6 +11,13 @@ import {
  * Derived cervical-mucus / wetness / genital-sensitivity state.
  * Ported day-bands from Coding_Notes/.../cycle/discharge.md — not a durable meter.
  *
+ * Persistence (overworld vs encounter):
+ * - wetness01 / mucusKind / lubricationRate01 are overworld-durable because they
+ *   derive from the unit's cycle clock. Explicit goal: ambient floor + orifice/cloth
+ *   persist across travel/sleep/city hours so a later scene or social beat can pick
+ *   them up. Encounter arousal/edge are ephemeral and must never be the sole writer
+ *   of "she is damp today." See memory topic whitefeather-overworld-wetness.md.
+ *
  * Felt wetness contract (rate → accumulation → state):
  * - cycle ambient wetness01 = floor bias ("naturally slick today")
  * - lubricationRate01 = secretion rate mult while aroused (not readiness)
@@ -18,7 +25,8 @@ import {
  * - felt = floor (+ lust nudge) + orifice map → readiness state
  * - readinessWetness (1.0) = penetration-ready; oversat above → heavier weep
  *
- * Later: lubrication gates vaginal/anal penetration comfort (size × intensity).
+ * Later: lubrication gates vaginal/anal penetration comfort (size × intensity);
+ * multi-stream overworld writers (leukorrhea / sleep pool / sweat / menstrual curve).
  */
 export type MucusKind =
   | 'bloody'
@@ -171,7 +179,8 @@ export function lubricationRateFor(
 
 export function bodilyStateFromHormones(
   h: HormoneSnapshot,
-  lengthDays: number
+  lengthDays: number,
+  opts?: { ambientSlickBias?: number }
 ): CycleBodilyState {
   const crest = fertileCrest01(h, lengthDays);
   const mucusKind = mucusKindForDay(h.day, lengthDays);
@@ -179,10 +188,15 @@ export function bodilyStateFromHormones(
   const genitalSensMult =
     C.genitalSensFloor +
     (C.genitalSensCrest - C.genitalSensFloor) * crest;
+  const bias = opts?.ambientSlickBias ?? 0;
+  const wetness01 = Math.max(
+    0,
+    Math.min(1, wetnessFor(mucusKind, crest, h.estrogen) + bias)
+  );
 
   return {
     mucusKind,
-    wetness01: wetnessFor(mucusKind, crest, h.estrogen),
+    wetness01,
     lubricationRate01: lubricationRateFor(mucusKind, crest, h.estrogen),
     genitalSensMult,
     fertileCrest01: crest,
@@ -306,7 +320,11 @@ export function feltWetnessForUnit(
       if (!h) return null;
       return bodilyStateFromHormones(
         h,
-        unit.lewdStats.static.ovulationCycleLength || 28
+        unit.lewdStats.static.ovulationCycleLength || 28,
+        {
+          ambientSlickBias:
+            unit.lewdStats.static.cycleFluidTraits?.ambientSlickBias,
+        }
       );
     })();
   if (!bodily) return null;

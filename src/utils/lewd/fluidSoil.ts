@@ -12,11 +12,7 @@ import type {
 } from '../../types/items';
 import { getItemTemplate } from '../../data/catalog/itemTemplates';
 import { getDetailedItem } from '../../data/starters/combatCastInventory';
-import { hormonesForUnit } from './ovulationCycle';
-import {
-  bodilyStateFromHormones,
-  feltWetnessForUnit,
-} from './cycleBodilyState';
+import { feltWetnessForUnit } from './cycleBodilyState';
 import type { FluidDischargeEvent, FluidKind } from './fluidDischarge';
 import type { EncounterPosture } from './encounterArousal';
 import { LEWD_TUNING as T } from './lewdTuning';
@@ -55,6 +51,11 @@ import {
   type OrificeSlickReport,
 } from './orificeSlick';
 import { accrueLustSecretionTrickle } from './vaginalSecretion';
+import {
+  accrueLeukorrhea,
+  accrueMenstrualBloodCurved,
+  postureIsRecumbent,
+} from './overworldDischarge';
 
 const SOIL_KINDS: FluidSoilKind[] = [
   'blood',
@@ -158,6 +159,22 @@ export function soilKindFromDischarge(kind: FluidKind): FluidSoilKind | null {
     default:
       return null;
   }
+}
+
+/**
+ * Soil a male's own crotch cloth (precum beads / clothed climax dump).
+ * Partner deposits still use applyDischargesToRecipientSoil.
+ */
+export function applyMaleOwnCrotchFluid(
+  unit: DetailedUnit,
+  kind: FluidSoilKind,
+  volume01: number,
+  opts?: { posture?: EncounterPosture }
+): DetailedUnit {
+  if (unit.sex !== 'M' || !(volume01 > 1e-6)) return unit;
+  return applyCrotchFluidSeepage(unit, kind, volume01, {
+    posture: opts?.posture ?? 'standing',
+  }).unit;
 }
 
 /**
@@ -1325,21 +1342,16 @@ export function applyDischargesToRecipientSoil(
   return { unit, partner, partnerDrip01 };
 }
 
-/** Menstrual blood accrual while mucus is bloody / phase menstrual. */
+/**
+ * Menstrual blood accrual while mucus is bloody / phase menstrual.
+ * Day-curve × menstrualFlowMult; period cloth absorbs first, excess bleedthrough
+ * to underwear. Implementation: overworldDischarge.accrueMenstrualBloodCurved.
+ */
 export function accrueMenstrualBlood(
   unit: DetailedUnit,
   hours: number
 ): DetailedUnit {
-  if (unit.sex !== 'F' || !(hours > 0)) return unit;
-  const h = hormonesForUnit(unit);
-  if (!h) return unit;
-  const body = bodilyStateFromHormones(
-    h,
-    unit.lewdStats.static.ovulationCycleLength || 28
-  );
-  if (body.mucusKind !== 'bloody' && h.phase !== 'Menstrual') return unit;
-  const ratePerHour = 0.08;
-  return applySoilToEquippedCloth(unit, 'blood', ratePerHour * hours).unit;
+  return accrueMenstrualBloodCurved(unit, hours).unit;
 }
 
 /**
@@ -1528,6 +1540,17 @@ export function dryUnitAndUnderwearSoil(
     }
     crotchSoil = normalizeSoilBag(skinFluidByRegion.crotch);
   }
+  // Period cloth dries in place (change-out / laundry beats later).
+  let periodCloth = unit.lewdStats.dynamic.periodCloth;
+  if (periodCloth?.soiled) {
+    const soiled = drySoilBag(periodCloth.soiled, hours);
+    const absorbed01 = Math.max(
+      bagIntensity(soiled, 'blood') +
+        bagIntensity(soiled, 'vaginalDischarge') * 0.5,
+      0
+    );
+    periodCloth = { ...periodCloth, soiled, absorbed01 };
+  }
   return {
     ...unit,
     lewdStats: {
@@ -1536,6 +1559,7 @@ export function dryUnitAndUnderwearSoil(
         ...unit.lewdStats.dynamic,
         crotchSoil,
         ...(skinFluidByRegion ? { skinFluidByRegion } : {}),
+        ...(periodCloth ? { periodCloth } : {}),
       },
     },
   };
@@ -1975,6 +1999,11 @@ export interface AdvanceFluidSoilOpts {
   posture?: EncounterPosture;
   /** Partner for mounted/cowgirl overflow (Lab). */
   partner?: DetailedUnit;
+  /**
+   * Overnight / sleep Pass-Time block — leukorrhea cloth gets sleep pool mult.
+   * Distinct from encounter posture; SocialLab "Sleep 8 h" sets this.
+   */
+  sleeping?: boolean;
 }
 
 export interface AdvanceFluidSoilResult {
@@ -1983,7 +2012,7 @@ export interface AdvanceFluidSoilResult {
   partnerDrip01: number;
 }
 
-/** Pass Time: dry soil + menses + arousal drip + retained semen leak + skin film runoff. */
+/** Pass Time: dry soil + leukorrhea + menses + arousal drip + semen leak + skin runoff. */
 export function advanceFluidSoil(
   unit: DetailedUnit,
   hours: number,
@@ -2003,6 +2032,10 @@ export function advanceFluidSoilDetailed(
   }
   const posture = opts?.posture ?? 'standing';
   let next = dryUnitAndUnderwearSoil(unit, hours);
+  next = accrueLeukorrhea(next, hours, {
+    sleeping: opts?.sleeping,
+    recumbent: postureIsRecumbent(posture),
+  }).unit;
   next = accrueMenstrualBlood(next, hours);
   const drip = accrueArousalWetSpotDripWithPartner(next, hours, {
     encounterArousal: opts?.encounterArousal,

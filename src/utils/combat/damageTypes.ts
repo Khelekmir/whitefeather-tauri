@@ -10,7 +10,9 @@ export type AttackMode =
   | 'thrust'
   | 'blunt'
   | 'unarmed'
-  | 'projectile';
+  | 'projectile'
+  /** Tome / faith delivery — MAG/RES pipeline not wired yet; stub bleed. */
+  | 'magical';
 
 export const ATTACK_MODE_LABELS: Record<AttackMode, string> = {
   slash: 'Slash',
@@ -18,6 +20,7 @@ export const ATTACK_MODE_LABELS: Record<AttackMode, string> = {
   blunt: 'Blunt',
   unarmed: 'Unarmed',
   projectile: 'Projectile',
+  magical: 'Magical',
 };
 
 /** Bleed channel mix per attack mode. Projectile mirrors thrust for now. */
@@ -27,6 +30,8 @@ export const DAMAGE_MODE_BLEED_SPLIT: Record<AttackMode, BleedSplit> = {
   blunt: { external: 0.2, internal: 0.8 },
   unarmed: { external: 0, internal: 1 },
   projectile: { external: 0.6, internal: 0.4 },
+  /** Stub: mostly spirit/burn trauma, little open bleeding until magic combat. */
+  magical: { external: 0.15, internal: 0.85 },
 };
 
 const SLASH_THRUST: AttackMode[] = ['slash', 'thrust'];
@@ -35,6 +40,7 @@ const THRUST_ONLY: AttackMode[] = ['thrust'];
 const BLUNT_ONLY: AttackMode[] = ['blunt'];
 const UNARMED_ONLY: AttackMode[] = ['unarmed'];
 const PROJECTILE_ONLY: AttackMode[] = ['projectile'];
+const MAGICAL_ONLY: AttackMode[] = ['magical'];
 
 /**
  * Which delivery modes a weapon type supports.
@@ -58,6 +64,10 @@ export function weaponAttackModes(weaponType: string): AttackMode[] {
     case 'recurveBow':
     case 'longbow':
       return [...PROJECTILE_ONLY];
+    case 'anima':
+    case 'light':
+    case 'dark':
+      return [...MAGICAL_ONLY];
     case '1hMace':
     case '2hMace':
     case 'flail':

@@ -13,10 +13,17 @@ import {
   type FluidSoilBag,
   type MaterialId,
 } from './items';
+import {
+  DEFAULT_SPELL_SKILL_RANK,
+  SPELL_IDS,
+  type SpellId,
+} from '../data/combat/spellCatalog';
 
 export type { Position };
 export type { EquipmentLoadout, EquipmentLoadoutPatch, EquipmentSlotId, ItemSlot } from './items';
 export { EQUIPMENT_SLOTS, createEmptyEquipmentLoadout, formatEquipmentSlotLabel } from './items';
+export type { SpellId } from '../data/combat/spellCatalog';
+export { SPELL_IDS, DEFAULT_SPELL_SKILL_RANK } from '../data/combat/spellCatalog';
 
 /** Arrow shaft currently occupying a wound (one per body part). */
 export interface LodgedArrow {
@@ -107,6 +114,17 @@ export const WEAPON_TYPES = [
   'unequipped',
   'throwingAxe',
   'throwingKnife',
+  /** Anima school rank (tomes: fire / thunder / wind). */
+  'anima',
+  /** Light school rank (faith tomes). */
+  'light',
+  /** Dark school rank (Shaman / Druid tomes). */
+  'dark',
+  /**
+   * Staff magic school rank (healing / support casting).
+   * Distinct from physical blunt `staff`.
+   */
+  'staffMagic',
 ] as const;
 
 export type WeaponTypeId = (typeof WEAPON_TYPES)[number];
@@ -172,6 +190,16 @@ export interface BaseCombatStats {
   resistance: number;
   staminaCap: number;
   constitution: number;
+  /**
+   * Book learning / tactical analysis / academic & magical theory aptitude.
+   * Distinct from `magic` (raw anima/light/dark power). Typical band ~2–18.
+   */
+  intelligence: number;
+  /**
+   * Judgment / prudence / spiritual & emotional insight / reading people.
+   * Distinct from `intelligence` (scholarship). Typical band ~2–18.
+   */
+  wisdom: number;
   healthCurrent: number;
   staminaCurrent: number;
   /**
@@ -190,6 +218,16 @@ export type WeaponSkill = Record<WeaponTypeId, number>;
 
 /** Sparse overrides when building or training skills. */
 export type WeaponSkillPatch = Partial<Record<WeaponTypeId, number>>;
+
+/**
+ * Full spell-skill map — every SpellId must be present.
+ * Values are ranks ≥ 0 that grow through cast practice (unbounded).
+ * School ranks (anima/light/dark/staffMagic) live on weaponSkill.
+ */
+export type SpellSkill = Record<SpellId, number>;
+
+/** Sparse overrides when building or training spell skills. */
+export type SpellSkillPatch = Partial<Record<SpellId, number>>;
 
 /**
  * Per-body-part injury state.
@@ -254,6 +292,19 @@ export type DominantHand = 'left' | 'right';
 export interface CombatStats {
   base: BaseCombatStats;
   weaponSkill: WeaponSkill;
+  /** Per-spell practice ranks (Flux, Fire, …). School ranks stay on weaponSkill. */
+  spellSkill: SpellSkill;
+  /**
+   * Spells the unit may cast (tome acquisition / lab unlock).
+   * Missing / false → locked (shown but not castable).
+   */
+  spellUnlocked?: Partial<Record<SpellId, boolean>>;
+  /**
+   * Per-spell decipher / study progress 0–1.
+   * 0–0.5 reveals timing (spinning arrows); 0.5–1 reveals true directions.
+   * Undeciphered dirs: per-cast random required dir; glyph spins to land on it at eclipse.
+   */
+  spellDecipher01?: Partial<Record<SpellId, number>>;
   stanceSkill: StanceSkill;
   /** Out-of-battle default cover. */
   preferredCover: CoverStanceId;
@@ -435,6 +486,20 @@ export interface LewdStatic {
     /** Short Lab tag when mod fires. */
     label?: string;
   };
+  /**
+   * Personal overworld discharge traits (leukorrhea / menses / sleep pool).
+   * Defaults 1 when omitted. Sweat damp deferred with whole-body sweat.
+   */
+  cycleFluidTraits?: {
+    /** Mult on baseline leukorrhea volume (light ↔ heavy discharge). ~0.65–1.4 */
+    leukorrheaMult?: number;
+    /** Mult on menstrual fluid volume / hourly bleed curve. ~0.55–1.5 */
+    menstrualFlowMult?: number;
+    /** Mult on sleep/recumbent leukorrhea pooling. */
+    sleepPoolMult?: number;
+    /** Bias added to ambient wetness01 floor (ambient slick intensity). */
+    ambientSlickBias?: number;
+  };
 }
 
 /** Where a sperm cohort enters / where conception is attributed. */
@@ -492,6 +557,13 @@ export interface PregnancyState {
   conceptus: ConceptusState;
   status: PregnancyStatus;
 }
+
+/** Common cold → lingering → pneumonia ladder (Pass Time body physiology). */
+export type RespiratoryIllnessStage =
+  | 'none'
+  | 'cold'
+  | 'lingering'
+  | 'pneumonia';
 
 export interface LewdDynamic {
   /**
@@ -572,12 +644,56 @@ export interface LewdDynamic {
       }>
     >
   >;
+  /**
+   * Period cloth worn inside underwear (pad-like absorb layer).
+   * Catalog items later — stub via equipStubPeriodCloth / Lab. Menstrual fluid
+   * fills this first; excess bleedthrough soils underwear blood.
+   */
+  periodCloth?: {
+    /** Absorb capacity in soil points (same family as wet scores / cloth intensity). */
+    capacity01: number;
+    /** Current absorbed load in soil points (wet+dry blood intensity on the cloth). */
+    absorbed01: number;
+    /** Soil bag on the cloth (blood primary; discharge optional later). */
+    soiled?: Partial<FluidSoilBag>;
+    /** Future catalog template id. */
+    templateId?: string;
+    /** Short display label for Lab / supply UI. */
+    label?: string;
+  };
   /** Live egg in tract, if any. */
   ovum?: OvumState | null;
   /** Active motile sperm cohorts. */
   spermCohorts?: SpermCohort[];
   /** Ongoing / resolved pregnancy stub. */
   pregnancy?: PregnancyState | null;
+  /**
+   * Core body temperature (°F). Defaults ~98.6 when omitted.
+   * Drifted by weather exposure × CON / height / weight / sex on Pass Time.
+   */
+  coreTempF?: number;
+  /** Peripheral skin °F — hands (cool / warm fastest). */
+  skinHandsF?: number;
+  /** Peripheral skin °F — nose / cheeks. */
+  skinFaceF?: number;
+  /**
+   * Heat-stress intensity 0–1. Sweat writes garment envWet01 via
+   * advanceGarmentWetness.
+   */
+  heatStress01?: number;
+  /**
+   * Shared body physiology (thermoregulation / respiratory) — not sexual.
+   * Future extract candidate: unit.physiology alongside coreTempF / heatStress.
+   * Wet×cold dose accumulator 0–1; onset when past coldIllness tuning threshold.
+   */
+  coldExposureDebt01?: number;
+  /**
+   * Respiratory illness stage from sustained wet-cold exposure.
+   * Social/combat read via helpers; this field owns the truth.
+   */
+  respiratoryIllness?: RespiratoryIllnessStage;
+  /** Hours spent in the current respiratoryIllness stage. */
+  respiratoryIllnessHours?: number;
 }
 
 export interface BodyPartLewd {
@@ -709,6 +825,17 @@ export function createDefaultStanceSkill(
   return result;
 }
 
+/** Full spell-skill map. Defaults rank 1; pass sparse overrides for specialties. */
+export function createDefaultSpellSkill(
+  overrides?: SpellSkillPatch
+): SpellSkill {
+  const result = {} as SpellSkill;
+  for (const id of SPELL_IDS) {
+    result[id] = overrides?.[id] ?? DEFAULT_SPELL_SKILL_RANK;
+  }
+  return result;
+}
+
 export function createDefaultCombatStance(options?: {
   preferredCover?: CoverStanceId;
   preferredStrike?: StrikeStanceId;
@@ -745,6 +872,8 @@ export function createDefaultBaseCombatStats(
     resistance: 4,
     staminaCap,
     constitution: 7,
+    intelligence: 7,
+    wisdom: 7,
     healthCurrent: overrides?.healthCurrent ?? health,
     staminaCurrent: overrides?.staminaCurrent ?? staminaCap,
     bloodLoss: 0,
@@ -766,6 +895,9 @@ export function createDefaultVitalOrgans(
 export function createDefaultCombatStats(options?: {
   base?: Partial<BaseCombatStats>;
   weaponSkill?: WeaponSkillPatch;
+  spellSkill?: SpellSkillPatch;
+  spellUnlocked?: Partial<Record<SpellId, boolean>>;
+  spellDecipher01?: Partial<Record<SpellId, number>>;
   stanceSkill?: StanceSkillPatch;
   preferredCover?: CoverStanceId;
   preferredStrike?: StrikeStanceId;
@@ -781,6 +913,13 @@ export function createDefaultCombatStats(options?: {
   return {
     base: createDefaultBaseCombatStats(options?.base),
     weaponSkill: createDefaultWeaponSkill(options?.weaponSkill),
+    spellSkill: createDefaultSpellSkill(options?.spellSkill),
+    spellUnlocked: options?.spellUnlocked
+      ? { ...options.spellUnlocked }
+      : undefined,
+    spellDecipher01: options?.spellDecipher01
+      ? { ...options.spellDecipher01 }
+      : undefined,
     stanceSkill: createDefaultStanceSkill(options?.stanceSkill),
     preferredCover,
     preferredStrike,
@@ -885,6 +1024,13 @@ export function createDefaultLewdStats(options?: {
       timeSinceLast: {},
       /** Default ~day 10 follicular (hours). */
       ovulationCycleCurrent: 10 * 24,
+      coreTempF: 98.6,
+      skinHandsF: 90,
+      skinFaceF: 93,
+      heatStress01: 0,
+      coldExposureDebt01: 0,
+      respiratoryIllness: 'none',
+      respiratoryIllnessHours: 0,
       ...options?.dynamic,
     },
     itemizedLewd: options?.itemizedLewd ?? {},
@@ -898,6 +1044,9 @@ export type CreateDetailedUnitInput = Omit<
   combatStats?: {
     base?: Partial<BaseCombatStats>;
     weaponSkill?: WeaponSkillPatch;
+    spellSkill?: SpellSkillPatch;
+    spellUnlocked?: Partial<Record<SpellId, boolean>>;
+    spellDecipher01?: Partial<Record<SpellId, number>>;
     stanceSkill?: StanceSkillPatch;
     preferredCover?: CoverStanceId;
     preferredStrike?: StrikeStanceId;
@@ -982,6 +1131,10 @@ export function formatWeaponTypeLabel(id: WeaponTypeId): string {
     recurveBow: 'Recurve Bow',
     throwingAxe: 'Throwing Axe',
     throwingKnife: 'Throwing Knife',
+    anima: 'Anima',
+    light: 'Light',
+    dark: 'Dark',
+    staffMagic: 'Staff (Magic)',
   };
   if (special[id]) return special[id]!;
   return id.replace(/^./, (c) => c.toUpperCase());

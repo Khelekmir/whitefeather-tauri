@@ -13,7 +13,8 @@ export interface LewdPreloadLocus {
   intensity?: number;
   /**
    * How the actor reaches the target through clothing.
-   * under = skip outer soft (skirt/leg); displace = push cloth aside.
+   * under = skip outer soft (skirt/leg); underneath = direct under all soft
+   * cloth (stim like displace, garments stay + soil); displace = push cloth aside.
    */
   clothingAccess?: ClothingAccessMode;
 }

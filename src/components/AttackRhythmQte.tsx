@@ -4,6 +4,7 @@ import {
   gradeOuterScaleWithNpcDefense,
   gradeTiming,
   defenseRhythmGradeLabel,
+  outerRotationAt,
   rhythmGradeLabel,
   scaleRhythmWindow,
   type AttackTimingZone,
@@ -123,7 +124,8 @@ type Phase = 'running' | 'resolving';
 
 /**
  * Legend of Dragoon–style timing sight: outer square rotates + shrinks onto a
- * fixed inner square.
+ * fixed inner square. Rotation is 0° at perfect size eclipse (scale=1) so the
+ * squares are axis-aligned when timing is correct — not upright at endScale.
  *
  * With `splash`, art fills the stage and squares sit on the aim region's center
  * (male/female silhouette + polygons from aimRegionOverlays).
@@ -238,7 +240,7 @@ export function AttackRhythmQte({
       const nextScale = w.startScale + (w.endScale - w.startScale) * t;
       setScale(nextScale);
       setRotation(
-        freezeRotationRef.current ? 0 : w.rotationDegrees * t
+        freezeRotationRef.current ? 0 : outerRotationAt(t, w)
       );
 
       if (t >= 1) {
@@ -572,14 +574,19 @@ export function AttackRhythmQte({
         </div>
       )}
 
+      {/* Fixed chrome heights — result / cancel must not reflow the silhouette. */}
       <div
         style={{
           textAlign: 'center',
           color: flash ? flashColor : '#e5e7eb',
           fontWeight: 700,
           letterSpacing: 1,
-          fontSize: flash ? '1.35rem' : '0.95rem',
-          minHeight: 28,
+          fontSize: '1.05rem',
+          height: 32,
+          lineHeight: '32px',
+          overflow: 'hidden',
+          whiteSpace: 'nowrap',
+          maxWidth: 'min(420px, 90vw)',
         }}
       >
         {flash
@@ -593,13 +600,31 @@ export function AttackRhythmQte({
           : shownHint}
       </div>
 
-      {splash && !flash ? (
-        <div style={{ fontSize: 12, opacity: 0.7, color: accent }}>
-          Aim · {AIM_ZONE_LABELS[splash.aim]}
-        </div>
-      ) : null}
+      <div
+        style={{
+          fontSize: 12,
+          opacity: splash ? 0.7 : 0,
+          color: accent,
+          height: 18,
+          lineHeight: '18px',
+          visibility: splash ? 'visible' : 'hidden',
+          overflow: 'hidden',
+        }}
+      >
+        {splash ? `Aim · ${AIM_ZONE_LABELS[splash.aim]}` : '—'}
+      </div>
 
-      <div style={{ fontSize: 11, opacity: 0.55, color: '#e5e7eb' }}>
+      <div
+        style={{
+          fontSize: 11,
+          opacity: 0.55,
+          color: '#e5e7eb',
+          height: 16,
+          lineHeight: '16px',
+          overflow: 'hidden',
+          whiteSpace: 'nowrap',
+        }}
+      >
         {defenseMode
           ? 'LMB / Space = dodge · RMB / P = parry · Esc cancel'
           : isBlockMode
@@ -607,27 +632,31 @@ export function AttackRhythmQte({
             : `Esc to cancel · window ×${w.windowFactor.toFixed(2)} · competence ${w.competence.toFixed(2)}`}
       </div>
 
-      {onCancel && phase === 'running' ? (
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onCancel();
-          }}
-          style={{
-            marginTop: 4,
-            padding: '6px 12px',
-            borderRadius: 6,
-            border: '1px solid rgba(255,255,255,0.2)',
-            background: 'rgba(0,0,0,0.35)',
-            color: '#e5e7eb',
-            cursor: 'pointer',
-            fontSize: 12,
-          }}
-        >
-          Cancel
-        </button>
-      ) : null}
+      <button
+        type="button"
+        disabled={!onCancel || phase !== 'running'}
+        onClick={(e) => {
+          e.stopPropagation();
+          if (onCancel && phase === 'running') onCancel();
+        }}
+        style={{
+          marginTop: 4,
+          padding: '6px 12px',
+          borderRadius: 6,
+          border: '1px solid rgba(255,255,255,0.2)',
+          background: 'rgba(0,0,0,0.35)',
+          color: '#e5e7eb',
+          cursor: onCancel && phase === 'running' ? 'pointer' : 'default',
+          fontSize: 12,
+          height: 32,
+          boxSizing: 'border-box',
+          visibility: onCancel ? 'visible' : 'hidden',
+          opacity: phase === 'running' && onCancel ? 1 : 0.35,
+          pointerEvents: phase === 'running' && onCancel ? 'auto' : 'none',
+        }}
+      >
+        Cancel
+      </button>
     </div>
   );
 }

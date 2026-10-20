@@ -114,6 +114,10 @@ export const WEAPON_STANCE_PROFILE: Record<string, WeaponStanceProfile> = {
   '2hMace': { preferredStrike: 'strikeHigh', ranged: false },
   flail: { preferredStrike: 'strikeHigh', ranged: false },
   staff: { preferredStrike: 'strikeMid', ranged: false },
+  anima: { preferredStrike: 'strikeMid', ranged: true },
+  light: { preferredStrike: 'strikeMid', ranged: true },
+  dark: { preferredStrike: 'strikeMid', ranged: true },
+  staffMagic: { preferredStrike: 'strikeMid', ranged: false },
   shield: { preferredStrike: 'strikeMid', ranged: false },
 };
 

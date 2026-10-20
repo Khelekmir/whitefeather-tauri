@@ -503,6 +503,8 @@ function FighterCard({
     { key: 'defense', label: 'DEF' },
     { key: 'resistance', label: 'RES' },
     { key: 'magic', label: 'MAG' },
+    { key: 'intelligence', label: 'INT' },
+    { key: 'wisdom', label: 'WIS' },
     { key: 'agility', label: 'AGI' },
     { key: 'reflex', label: 'RFX' },
     { key: 'constitution', label: 'CON' },

@@ -249,6 +249,12 @@ export interface LewdBonus {
    * Outer-area male/female ejaculate can deposit directly into seat/innerThigh/hem.
    */
   soiledByRegion?: FluidSoilByRegion;
+  /**
+   * Environment wetness 0–1 (rain + whole-body sweat damp).
+   * Separate from genital fluid soil. Worn wetness feeds evaporative chill;
+   * unequipped pieces keep their wetness for fire-dry / laundry beats.
+   */
+  envWet01?: number;
 }
 
 export interface ItemFlags {
@@ -286,6 +292,11 @@ export interface ItemTemplate {
 
   /** Weapons / some shields */
   weaponType?: WeaponTypeId;
+  /**
+   * Specific spell for tome / staff-magic items (Flux, Fire, …).
+   * School rank stays on weaponType (anima/light/dark/staffMagic).
+   */
+  spellId?: import('../data/combat/spellCatalog').SpellId;
   /** Shields — maps to SHIELD_TYPES (buckler / heater / …). */
   shieldType?: string;
 
@@ -341,6 +352,13 @@ export interface ItemTemplate {
   /** Explicit hit-location coverage (0–1). Overrides length/size presets when set. */
   coverage?: CoverageMap;
 
+  /**
+   * Rain-wrap cloak size (small / medium / large).
+   * Selects `CLOAK_RAIN_COVERAGE` slot shelter — not combat body-part coverage.
+   * Only meaningful on `back` cloaks.
+   */
+  cloakSize?: import('../data/world/cloakRainCoverage').CloakSize;
+
   combatBonus?: CombatBonus;
   lewdBonus?: LewdBonus;
   flags?: ItemFlags;
@@ -372,6 +390,8 @@ export interface Item {
   /** For arrows: arrowhead material. */
   material: MaterialId;
   weaponType?: WeaponTypeId;
+  /** Specific spell for tome / staff-magic items. */
+  spellId?: import('../data/combat/spellCatalog').SpellId;
   /** Shields — see SHIELD_TYPES. */
   shieldType?: string;
   /** Arrow / projectile mass (from template / shaft). */
