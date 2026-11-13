@@ -39,7 +39,7 @@ export type BareSkinRange =
 /**
  * How far runoff has traveled along the rear trail (lying / seated).
  * Gravity: perineum → anal verge → cleft → cheeks → bed.
- * Anal verge is the future lubrication station (not full anal lube yet).
+ * Anal verge pool also feeds orificeSlick.anus (passive dwell writer).
  */
 export type BareSeatRange =
   | 'none'
@@ -382,7 +382,7 @@ export function narrateBareThighRun(opts: {
 /**
  * Narrative line for rear / seat runoff while lying or seated.
  * Present tense while growing; established uses static pooled/down phrasing.
- * Anal verge is called out so future anal lubrication can key off the same range.
+ * Anal verge range aligns with the verge pool that feeds anus slick.
  */
 export function narrateBareSeatRun(opts: {
   form: BareSkinForm;

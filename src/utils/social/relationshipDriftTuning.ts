@@ -20,6 +20,19 @@ export const RELATIONSHIP_DRIFT_TUNING = {
    */
   crystallizeGain: 0.28,
 
-  /** Ignore faded residuals smaller than this (no LT write). */
+  /** Ignore faded residuals smaller than this (no LT / pressure write). */
   crystallizeEpsilon: 0.25,
+
+  /**
+   * Global scale on ST-fade → durable pressure chips (same faded residual as LT).
+   * pressureDelta += faded × weight × pressureCrystalGain
+   * Soft vs idle pressure drift (λ≈0.45/h) so anchors stay meaningful.
+   */
+  pressureCrystalGain: 0.35,
+
+  /**
+   * Cap |pressure chip| per unit per pressure id within one drift call
+   * (many edges crystallizing in the same Pass Time tick).
+   */
+  pressureCrystalPerTickCap: 8,
 } as const;

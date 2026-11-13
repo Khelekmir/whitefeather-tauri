@@ -19,6 +19,10 @@ import {
 } from './conception';
 import { dischargeOnClimax, type FluidDischargeEvent } from './fluidDischarge';
 import {
+  appendEncounterFluidDeposits,
+  depositsFromDischarges,
+} from './fluidSample';
+import {
   applyDischargesToRecipientSoil,
   applyMaleOwnCrotchFluid,
 } from './fluidSoil';
@@ -37,6 +41,21 @@ import {
   type LewdChannel,
   type ResolvedChannel,
 } from './lewdChannels';
+import { applySalivaDepositsFromChannels } from './actLubricantDeposit';
+import {
+  applyAnalTearInjury,
+  applyVaginalTearInjury,
+} from './analTearInjury';
+import {
+  evaluateOrificeComfort,
+  mergeOrificeComfortBeat,
+  type OrificeComfortBand,
+} from './orificeComfort';
+import {
+  ensureAnalBaselineSlick,
+  readOrificePlayFromEncounter,
+  writeOrificePlayToEncounter,
+} from './orificePlayState';
 import { blendOrificeSlick } from './orificeSlick';
 import { bandOutcome, outcomeLabel, type LewdOutcomeBand } from './outcomes';
 import { hormonesForUnit } from './ovulationCycle';
@@ -113,7 +132,7 @@ export interface LewdMoveResult {
   recipientAfterSoil: DetailedUnit;
   /** Partner after mounted/cowgirl overflow soil (when posture is mounted). */
   proactiveAfterSoil?: DetailedUnit;
-  /** Amount01 diverted onto partner crotch cloth this beat (mounted stub). */
+  /** Amount01 diverted onto partner crotch cloth this beat (mounted posture). */
   partnerDrip01?: number;
   conceptionNote: string | null;
   band: LewdOutcomeBand;
@@ -137,6 +156,21 @@ export interface LewdMoveResult {
   preferredIntensity: number;
   maxIntensity: number;
   targetName: string;
+  /** ♀ orifice comfort band this beat (tease/probe/insert). */
+  orificeComfortBand: OrificeComfortBand | null;
+  orificeComfortNote: string | null;
+  /** Anal rubbed-raw 0–1 after this beat. */
+  analRaw01: number;
+  /** Anal tear applied to itemizedHealth.anus this beat. */
+  analTear: boolean;
+  analTearNote: string | null;
+  /** Vaginal rubbed-raw 0–1 after this beat. */
+  vaginalRaw01: number;
+  /** Vaginal tear applied to itemizedHealth.groin this beat. */
+  vaginalTear: boolean;
+  vaginalTearNote: string | null;
+  /** Saliva/oil act deposit note this beat (when applicable). */
+  lubricantDepositNote: string | null;
 }
 
 /**
@@ -146,7 +180,6 @@ export interface LewdMoveResult {
 export function resolveLewdChannels(input: LewdChannelsInput): LewdMoveResult {
   const {
     proactive,
-    recipient,
     channels,
     holdSeconds,
     encounter,
@@ -154,6 +187,21 @@ export function resolveLewdChannels(input: LewdChannelsInput): LewdMoveResult {
   } = input;
   const proactiveEncounter =
     input.proactiveEncounter ?? createEncounterArousalState();
+
+  // ♀ scene start: ensure anal baseline slick before comfort reads.
+  let recipient =
+    input.recipient.sex === 'F'
+      ? ensureAnalBaselineSlick(input.recipient)
+      : input.recipient;
+
+  // Tongue/lips → saliva on orifice targets (before comfort/raw).
+  const salivaDeposit = applySalivaDepositsFromChannels(
+    recipient,
+    channels,
+    holdSeconds
+  );
+  recipient = salivaDeposit.unit;
+  const lubricantDepositNote = salivaDeposit.note;
 
   const giver = evaluateProactivePush(
     proactive,
@@ -234,14 +282,65 @@ export function resolveLewdChannels(input: LewdChannelsInput): LewdMoveResult {
     ? getEdge(relationships, recipient.id, proactive.id)
     : null;
   const bond = bondFromEdge(bondEdge);
+
+  // ♀ orifice dilation × lube comfort (tease / probe / insert).
+  const holdDt = Math.max(0.5, holdSeconds);
+  const orificePlayPrev = readOrificePlayFromEncounter(encounter);
+  const feltForOrifice =
+    recipient.sex === 'F' && recvBodily
+      ? feltWetness(recvBodily.wetness01, {
+          lust: recipient.lewdStats.dynamic.lust ?? 0,
+          orificeWet01: blendOrificeSlick(
+            recipient.lewdStats.dynamic.orificeSlick?.vagina
+          ).wet01,
+          lubricationRate01: recvBodily.lubricationRate01,
+        }).feltWetness
+      : undefined;
+  const orificeResults = [];
+  let orificePlayAcc = orificePlayPrev;
+  if (recipient.sex === 'F') {
+    for (const ch of channels) {
+      const r = evaluateOrificeComfort({
+        channel: ch,
+        recipient,
+        orificePlay: orificePlayAcc,
+        holdSeconds: holdDt,
+        feltWetness01: feltForOrifice,
+        firstEntryHint:
+          (orificePlayAcc.anal?.lastSizeRank ?? 0) < 1 &&
+          /^(anus|rectum)/i.test(ch.targetPart),
+      });
+      if (!r) continue;
+      orificeResults.push(r);
+      orificePlayAcc = { ...orificePlayAcc, [r.family]: r.nextState };
+    }
+  }
+  const orificeBeat = mergeOrificeComfortBeat(
+    orificeResults,
+    orificePlayAcc,
+    holdDt
+  );
+  if (orificeBeat.qualityMult < 0.999) {
+    recvPsych *= orificeBeat.qualityMult;
+    recvPhysio *= orificeBeat.qualityMult;
+  }
+  // Dry refuse: crush gains like a hard rebuff on the orifice beat.
+  if (orificeBeat.refuse) {
+    recvPsych *= 0.15;
+    recvPhysio *= 0.05;
+  }
+
   const painPsychShare = painPsychShareFromContext({
     bond,
     arousal: encounter.arousal,
     recipient,
-    softUnready: merge.arousalSoftUnready,
-    hardUnready: merge.arousalHardBlocked || merge.violation,
+    softUnready: merge.arousalSoftUnready || orificeBeat.band === 'forcing',
+    hardUnready:
+      merge.arousalHardBlocked ||
+      merge.violation ||
+      orificeBeat.refuse,
   });
-  const painPhysPerSec =
+  let painPhysPerSec =
     allowPhysioGains && merge.pain > 0
       ? painPhysRateFromAction({
           pain: merge.pain,
@@ -249,25 +348,43 @@ export function resolveLewdChannels(input: LewdChannelsInput): LewdMoveResult {
           recipient,
         })
       : 0;
+  if (orificeBeat.physPerSec > 0) {
+    painPhysPerSec = Math.max(painPhysPerSec, orificeBeat.physPerSec);
+  }
+  const orificePsychShare =
+    orificeBeat.physPerSec > 0
+      ? Math.max(painPsychShare, orificeBeat.psychShare)
+      : painPsychShare;
 
   const next = updateEncounterArousal(seededWithCycle, {
     psychQuality: allowPsychGains ? recvPsych : 0,
     physioQuality: allowPhysioGains ? recvPhysio : 0,
     erogenous: merge.erogenous,
-    deltaT: Math.max(0.5, holdSeconds),
+    deltaT: holdDt,
     sex: recipient.sex,
-    overstep: allowPhysioGains && merge.overstep,
-    overstepSeverity: merge.overstepSeverity,
-    violation: merge.violation || merge.arousalHardBlocked,
+    overstep: allowPhysioGains && (merge.overstep || orificeBeat.band === 'forcing'),
+    overstepSeverity:
+      orificeBeat.band === 'forcing'
+        ? Math.max(merge.overstepSeverity, 0.65)
+        : merge.overstepSeverity,
+    violation:
+      merge.violation || merge.arousalHardBlocked || orificeBeat.refuse,
     painPhysPerSec,
-    painPsychShare,
+    painPsychShare: orificePsychShare,
     overstepPsychBoost:
-      merge.arousalSoftUnready || merge.violation ? 1.25 : 1,
+      merge.arousalSoftUnready ||
+      merge.violation ||
+      orificeBeat.band === 'forcing' ||
+      orificeBeat.refuse
+        ? 1.25
+        : 1,
     estrogen: recvHormones?.estrogen,
     testosterone: recvHormones?.testosterone,
     hypersensStimIntensity: allowPhysioGains
       ? merge.hypersensStimIntensity
       : 0,
+    // Lover-coax: recipient→proactive bond keeps arousal under psych strain.
+    bond,
   });
 
   const genitalPlay = channels.some((ch) =>
@@ -325,6 +442,7 @@ export function resolveLewdChannels(input: LewdChannelsInput): LewdMoveResult {
     violation: giver.pushReadiness === 'hardUnready' && merge.intimacyRequired > 40,
     estrogen: proactiveHormones?.estrogen,
     testosterone: proactiveHormones?.testosterone,
+    proactiveGiving: true,
   });
 
   const maleClothCtx = maleGenitalClothContext(channels);
@@ -580,6 +698,39 @@ export function resolveLewdChannels(input: LewdChannelsInput): LewdMoveResult {
   const reproBeat = advanceReproduction(recipientAfterSoil, 0.01);
   recipientAfterSoil = reproBeat.unit;
 
+  // Ephemeral fluid samples (identity + stamped properties). Cloth soil stays anonymous.
+  const newFluidDeposits = depositsFromDischarges({
+    discharges,
+    unitsById: {
+      [recipient.id]: recipientAfterSoil,
+      [proactive.id]: proactiveAfterSoil,
+    },
+    targetParts: channels.map((c) => c.targetPart),
+  });
+  const fluidDeposits = appendEncounterFluidDeposits(
+    encounter.fluidDeposits,
+    newFluidDeposits
+  );
+
+  let analTearNote: string | null = null;
+  if (orificeBeat.analTear && orificeBeat.analTearHealthLoss > 0) {
+    const torn = applyAnalTearInjury(
+      recipientAfterSoil,
+      orificeBeat.analTearHealthLoss
+    );
+    recipientAfterSoil = torn.unit;
+    analTearNote = torn.note || null;
+  }
+  let vaginalTearNote: string | null = null;
+  if (orificeBeat.vaginalTear && orificeBeat.vaginalTearHealthLoss > 0) {
+    const torn = applyVaginalTearInjury(
+      recipientAfterSoil,
+      orificeBeat.vaginalTearHealthLoss
+    );
+    recipientAfterSoil = torn.unit;
+    vaginalTearNote = torn.note || null;
+  }
+
   return {
     summary: `${merge.summary}${pushNote}`,
     merge,
@@ -589,19 +740,23 @@ export function resolveLewdChannels(input: LewdChannelsInput): LewdMoveResult {
     physioQuality: recvPhysio,
     erogenous: merge.erogenous,
     softCap: next.softCap,
-    encounter: {
-      arousal: next.arousal,
-      edge: next.edge,
-      discomfort: next.discomfort,
-      discomfortPhys: next.discomfortPhys,
-      discomfortPsych: next.discomfortPsych,
-      climaxCount: next.climaxCount,
-      receptivity: next.receptivity,
-      refractorySecondsRemaining: next.refractorySecondsRemaining,
-      orgasmSecondsRemaining: next.orgasmSecondsRemaining ?? 0,
-      erection01: next.erection01 ?? 0,
-      posture: next.posture ?? encounter.posture ?? 'standing',
-    },
+    encounter: writeOrificePlayToEncounter(
+      {
+        arousal: next.arousal,
+        edge: next.edge,
+        discomfort: next.discomfort,
+        discomfortPhys: next.discomfortPhys,
+        discomfortPsych: next.discomfortPsych,
+        climaxCount: next.climaxCount,
+        receptivity: next.receptivity,
+        refractorySecondsRemaining: next.refractorySecondsRemaining,
+        orgasmSecondsRemaining: next.orgasmSecondsRemaining ?? 0,
+        erection01: next.erection01 ?? 0,
+        posture: next.posture ?? encounter.posture ?? 'standing',
+        fluidDeposits,
+      },
+      orificeBeat.nextPlay
+    ),
     proactiveEncounter: {
       arousal: nextProactive.arousal,
       edge: nextProactive.edge,
@@ -614,6 +769,7 @@ export function resolveLewdChannels(input: LewdChannelsInput): LewdMoveResult {
       orgasmSecondsRemaining: nextProactive.orgasmSecondsRemaining ?? 0,
       erection01: nextProactive.erection01 ?? 0,
       posture: nextProactive.posture ?? proactiveEncounter.posture ?? 'standing',
+      fluidDeposits: proactiveEncounter.fluidDeposits ?? [],
     },
     climaxed: next.climaxed,
     proactiveClimaxed: nextProactive.climaxed,
@@ -654,6 +810,16 @@ export function resolveLewdChannels(input: LewdChannelsInput): LewdMoveResult {
     preferredIntensity: primary.preferredIntensity,
     maxIntensity: primary.maxIntensity,
     targetName: primary.targetName,
+    orificeComfortBand: orificeBeat.band,
+    orificeComfortNote:
+      orificeBeat.notes.length > 0 ? orificeBeat.notes.join(' · ') : null,
+    analRaw01: orificeBeat.analRaw01,
+    analTear: orificeBeat.analTear,
+    analTearNote,
+    vaginalRaw01: orificeBeat.vaginalRaw01,
+    vaginalTear: orificeBeat.vaginalTear,
+    vaginalTearNote,
+    lubricantDepositNote,
   };
 }
 

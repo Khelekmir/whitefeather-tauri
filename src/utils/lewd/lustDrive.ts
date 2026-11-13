@@ -63,6 +63,23 @@ export function standingLustTarget(unit: DetailedUnit): number {
  * Drift lust toward standingLustTarget using temperament growth/decay
  * and libido-scaled responsiveness.
  */
+/** Immediate standing-lust bump (e.g. mild relief after masturbation climax). */
+export function nudgeStandingLust(
+  unit: DetailedUnit,
+  delta: number
+): DetailedUnit {
+  const lustFrom = unit.lewdStats.dynamic.lust ?? 0;
+  const lustTo = clamp100(lustFrom + delta);
+  if (lustTo === lustFrom) return unit;
+  return {
+    ...unit,
+    lewdStats: {
+      ...unit.lewdStats,
+      dynamic: { ...unit.lewdStats.dynamic, lust: lustTo },
+    },
+  };
+}
+
 export function advanceStandingLust(
   unit: DetailedUnit,
   hours: number

@@ -1,4 +1,6 @@
 import { ST_TO_LT_CRYSTALLIZATION } from '../../data/social/relationshipCrystallization';
+import { ST_TO_PRESSURE_ON_CRYSTALLIZE } from '../../data/social/relationshipPressureCrystallization';
+import type { PersonalizedPressureId } from '../../data/social/durablePressures';
 import {
   LONG_TERM_RELATIONSHIP_AXES,
   SHORT_TERM_RELATIONSHIP_AXES,
@@ -253,11 +255,22 @@ export interface LongTermCrystalDelta {
   delta: number;
 }
 
+/** Soft meter chip on the feeling unit when ST fades / crystallizes. */
+export interface PressureCrystalDelta {
+  unitId: string;
+  id: PersonalizedPressureId;
+  delta: number;
+  fromSt: ShortTermRelationshipId;
+  /** Relationship edge key that contributed. */
+  key: string;
+}
+
 export interface ShortTermDriftResult {
   graph: RelationshipGraph;
   hours: number;
   deltas: ShortTermDriftDelta[];
   crystalDeltas: LongTermCrystalDelta[];
+  pressureDeltas: PressureCrystalDelta[];
 }
 
 function decayTowardZero(value: number, hours: number): number {
@@ -272,8 +285,9 @@ export type RelationshipUnitLookup = Readonly<
 
 /**
  * Idle decay of short-term weather toward 0, crystallizing a shaved fraction of
- * the faded residual into long-term standing (see ST_TO_LT_CRYSTALLIZATION).
- * Desire-targeted writes require unitsById so attraction rules can gate them.
+ * the faded residual into long-term standing (see ST_TO_LT_CRYSTALLIZATION)
+ * and soft durable-pressure chips on the feeling unit
+ * (see ST_TO_PRESSURE_ON_CRYSTALLIZE). Desire-targeted LT writes require unitsById.
  */
 export function driftShortTermRelationships(
   graph: RelationshipGraph,
@@ -281,12 +295,43 @@ export function driftShortTermRelationships(
   unitsById?: RelationshipUnitLookup
 ): ShortTermDriftResult {
   if (!(hours > 0)) {
-    return { graph, hours: 0, deltas: [], crystalDeltas: [] };
+    return {
+      graph,
+      hours: 0,
+      deltas: [],
+      crystalDeltas: [],
+      pressureDeltas: [],
+    };
   }
 
   const deltas: ShortTermDriftDelta[] = [];
   const crystalDeltas: LongTermCrystalDelta[] = [];
+  const pressureAcc = new Map<string, PressureCrystalDelta>();
   const nextGraph: RelationshipGraph = { ...graph };
+
+  const addPressure = (
+    unitId: string,
+    id: PersonalizedPressureId,
+    rawDelta: number,
+    fromSt: ShortTermRelationshipId,
+    key: string
+  ) => {
+    if (Math.abs(rawDelta) < 0.01) return;
+    const accKey = `${unitId}::${id}`;
+    const prev = pressureAcc.get(accKey);
+    const merged = (prev?.delta ?? 0) + rawDelta;
+    const capped = Math.max(
+      -T.pressureCrystalPerTickCap,
+      Math.min(T.pressureCrystalPerTickCap, merged)
+    );
+    pressureAcc.set(accKey, {
+      unitId,
+      id,
+      delta: capped,
+      fromSt: prev?.fromSt ?? fromSt,
+      key: prev?.key ?? key,
+    });
+  };
 
   for (const [key, edge] of Object.entries(graph)) {
     let changed = false;
@@ -339,6 +384,21 @@ export function driftShortTermRelationships(
         });
         changed = true;
       }
+
+      const pWeights = ST_TO_PRESSURE_ON_CRYSTALLIZE[axis.id];
+      for (const [pId, weight] of Object.entries(pWeights) as [
+        PersonalizedPressureId,
+        number,
+      ][]) {
+        if (!weight) continue;
+        addPressure(
+          edge.fromId,
+          pId,
+          faded * weight * T.pressureCrystalGain,
+          axis.id,
+          key
+        );
+      }
     }
 
     if (changed) {
@@ -346,7 +406,15 @@ export function driftShortTermRelationships(
     }
   }
 
-  return { graph: nextGraph, hours, deltas, crystalDeltas };
+  return {
+    graph: nextGraph,
+    hours,
+    deltas,
+    crystalDeltas,
+    pressureDeltas: [...pressureAcc.values()].filter(
+      (d) => Math.abs(d.delta) >= 0.01
+    ),
+  };
 }
 
 export function summarizeLongTerm(scores: LongTermScores): string {

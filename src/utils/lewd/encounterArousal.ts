@@ -1,16 +1,22 @@
 import type { Sex } from '../../types/characters';
+import type { EncounterFluidDeposit } from '../../types/fluids';
 import { arousalSoftCapForErogenous } from './erogenous';
-import { bodyCommit01 } from './intimacyBond';
+import {
+  bodyCommit01,
+  loverCoaxDecayMult,
+  loverCoaxGainFloor,
+  type BondSnapshot,
+} from './intimacyBond';
 import { integrateErection01 } from './maleErection';
 import { LEWD_TUNING as T } from './lewdTuning';
 
 /**
- * Body posture for cloth / skin fluid routing (Lab stub; scene tags later).
+ * Body posture for cloth / skin fluid routing (Lab + resolve; scene tags thin).
  * - standing: overflow → inner thigh / calf
  * - seated / lying: pool on seat (no “up the thighs”)
- * - handsKnees: face-down ass-up — runoff toward knees + partner stub
+ * - handsKnees: face-down ass-up — runoff toward knees (pubic-hair drip gate deferred)
  * - sideLying: spooning / side entry — lower hip/seat + thigh
- * - mounted: cowgirl — overflow can soil partner’s crotch cloth (stub)
+ * - mounted: cowgirl — overflow share can soil partner crotch cloth when applied
  */
 export type EncounterPosture =
   | 'standing'
@@ -54,6 +60,28 @@ export interface EncounterArousalState {
   erection01?: number;
   /** Cloth drip / seat-pool routing. Default standing. */
   posture?: EncounterPosture;
+  /**
+   * Encounter-local orifice dilation / stretch (♀ vagina + anal in v1).
+   * Typed loosely here to avoid a circular import; use OrificePlayByFamily helpers.
+   */
+  orificePlay?: Record<
+    string,
+    {
+      dilation01: number;
+      stretchFatigue01: number;
+      raw01?: number;
+      tornThisEncounter?: boolean;
+      analTornThisEncounter?: boolean;
+      lastSizeRank: number;
+      heldInsertable?: { sizeClass: string; itemId?: string };
+    }
+  >;
+  /**
+   * Ephemeral identity-bearing fluid deposits (semen, etc.).
+   * Discarded with the encounter — harvest into LewdDynamic.fluidSamples to persist.
+   * Cloth/orifice soil stays anonymous; do not mirror donor id there.
+   */
+  fluidDeposits?: EncounterFluidDeposit[];
 }
 
 export interface EncounterArousalUpdate {
@@ -92,6 +120,16 @@ export interface EncounterArousalUpdate {
    * Used only while orgasmSecondsRemaining > 0.
    */
   hypersensStimIntensity?: number;
+  /**
+   * True when this beat is proactive giving (not receiving).
+   * ♂ stacks proactiveArousalGainMult on top of base male arousalGainMult.
+   */
+  proactiveGiving?: boolean;
+  /**
+   * Recipient→partner bond for lover-coax arousal relief under psych strain.
+   * Omit for solo / no-relationship beats (continuum + body-commit only).
+   */
+  bond?: BondSnapshot;
 }
 
 /** Psych continuum bands for Lab / prose. */
@@ -275,6 +313,7 @@ export function createEncounterArousalState(): EncounterArousalState {
     orgasmSecondsRemaining: 0,
     erection01: 0,
     posture: 'standing',
+    fluidDeposits: [],
   };
 }
 
@@ -347,9 +386,13 @@ export function updateEncounterArousal(
       H.psychSoftCapBonusMax * estrogen01 * Math.max(0.15, psychShare);
   }
 
+  const maleSoftCapBonus = update.sex === 'M' ? E.male.softCapBonus : 0;
   const softCap = Math.min(
     100,
-    arousalSoftCapForErogenous(erogenous) + softCapBoost + psychSoftCapBonus
+    arousalSoftCapForErogenous(erogenous) +
+      softCapBoost +
+      psychSoftCapBonus +
+      maleSoftCapBonus
   );
 
   if (dt <= 0) {
@@ -484,27 +527,57 @@ export function updateEncounterArousal(
     psychResp.edgeAccrueAllowed && physioQ > 0.08
       ? bodyCommit01(arousal) * T.bond.bodyCommit.physioMult * 0.42
       : 0;
-  const effectiveGainMult = Math.max(psychResp.gainMult, heatedPhysioFloor);
+  // Lover-coax (arousal-only): affection+desire keep arousal climbing under
+  // high psych while phys < ceiling; dies at psych hard-cap. Edge/tip unchanged.
+  const coaxFloor = update.bond
+    ? loverCoaxGainFloor(update.bond, discomfortPsych, discomfortPhys)
+    : 0;
+  const coaxDecayScale = update.bond
+    ? loverCoaxDecayMult(update.bond, discomfortPsych, discomfortPhys)
+    : 1;
+  const effectiveGainMult = Math.max(
+    psychResp.gainMult,
+    heatedPhysioFloor,
+    coaxFloor
+  );
+  const effectiveDecayPerSec = psychResp.decayPerSec * coaxDecayScale;
 
   // --- Arousal (psych continuum: diminish, then overwhelm decay) ---
+  // ♂ climb faster than ♀; proactive giving stacks an extra mult. Edge is untouched.
+  let maleArousalMult = 1;
+  let noveltyBoostMax: number = E.noveltyBoostMax;
+  let noveltyArousalBelow: number = E.noveltyArousalBelow;
+  if (update.sex === 'M') {
+    const Male = E.male;
+    maleArousalMult = Male.arousalGainMult;
+    if (update.proactiveGiving) {
+      maleArousalMult *= Male.proactiveArousalGainMult;
+    }
+    noveltyBoostMax = Male.noveltyBoostMax;
+    noveltyArousalBelow = Male.noveltyArousalBelow;
+  }
+
   const arousalPush =
     (E.arousalPsychGainPerSec * psychQ + E.arousalPhysioGainPerSec * physioQ) *
     physDamp *
     effectiveGainMult *
-    hormoneGainMult;
+    hormoneGainMult *
+    maleArousalMult;
 
-  if (psychResp.decayPerSec > 0.02) {
-    arousal = clamp100(arousal - psychResp.decayPerSec * dt);
-  } else if (arousal > softCap + 0.75) {
-    arousal = clamp100(arousal - E.arousalDecayPerSec * 1.4 * dt);
-  } else if (arousalPush > 0.02) {
+  // Lover-coax can keep a gain floor through overwhelm while only partially
+  // suppressing decay — climb first, then residual decay (net).
+  const canClimb =
+    arousalPush > 0.02 &&
+    effectiveGainMult > 0.02 &&
+    arousal <= softCap + 0.75;
+  if (canClimb) {
     const fill = softCap > 1 ? Math.min(0.98, arousal / softCap) : 0.98;
     const diminish = Math.pow(1 - fill, E.arousalDiminishPower);
     const novelty =
-      arousal < E.noveltyArousalBelow
+      arousal < noveltyArousalBelow
         ? 1 +
-          (E.noveltyBoostMax - 1) *
-            (1 - arousal / Math.max(1, E.noveltyArousalBelow))
+          (noveltyBoostMax - 1) *
+            (1 - arousal / Math.max(1, noveltyArousalBelow))
         : 1;
     const room = Math.max(0, softCap - arousal);
     if (room < 0.35) {
@@ -513,6 +586,13 @@ export function updateEncounterArousal(
       const step = Math.min(room, arousalPush * novelty * diminish * dt);
       arousal = clamp100(arousal + step);
     }
+    if (effectiveDecayPerSec > 0.02) {
+      arousal = clamp100(arousal - effectiveDecayPerSec * dt);
+    }
+  } else if (effectiveDecayPerSec > 0.02) {
+    arousal = clamp100(arousal - effectiveDecayPerSec * dt);
+  } else if (arousal > softCap + 0.75) {
+    arousal = clamp100(arousal - E.arousalDecayPerSec * 1.4 * dt);
   } else {
     arousal = clamp100(arousal - E.arousalDecayPerSec * dt);
   }
@@ -690,5 +770,7 @@ export function idleEncounterArousal(
     orgasmSecondsRemaining: r.orgasmSecondsRemaining ?? 0,
     erection01: r.erection01 ?? 0,
     posture: r.posture ?? state.posture ?? 'standing',
+    orificePlay: state.orificePlay,
+    fluidDeposits: state.fluidDeposits ?? [],
   };
 }

@@ -25,8 +25,9 @@ import {
  * - felt = floor (+ lust nudge) + orifice map → readiness state
  * - readinessWetness (1.0) = penetration-ready; oversat above → heavier weep
  *
- * Later: lubrication gates vaginal/anal penetration comfort (size × intensity);
- * multi-stream overworld writers (leukorrhea / sleep pool / sweat / menstrual curve).
+ * Orifice comfort (size × intensity × slick) is live in orificeComfort.
+ * Overworld writers: leukorrhea / sleep pool / menstrual curve live;
+ * whole-body sweat still deferred.
  */
 export type MucusKind =
   | 'bloody'

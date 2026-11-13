@@ -151,13 +151,17 @@ export function evaluateProactivePush(
   );
 
   // Deeper acts need more proactive heat / interest before they "want" to push.
-  const pushRequiredArousal = Math.min(
+  // ♂ escalate readiness sooner (mental readiness outruns shared push curve).
+  let pushRequiredArousal = Math.min(
     P.pushArousalCap,
     Math.max(
       0,
       (maxActIntimacy - P.pushSoftActIntimacy) * P.arousalPerActIntimacy
     ) * (1.15 - pushWillingness * 0.4)
   );
+  if (proactive.sex === 'M') {
+    pushRequiredArousal *= T.encounter.male.pushRequiredArousalMult;
+  }
 
   let pushReadiness: ProactiveGiverStim['pushReadiness'] = 'ok';
   if (proactiveArousal + P.pushSoftSlack < pushRequiredArousal) {
@@ -173,9 +177,12 @@ export function evaluateProactivePush(
         ? P.softUnreadyQualityMult
         : 1;
 
+  const maleQuality =
+    proactive.sex === 'M' ? T.encounter.male.proactiveQualityMult : 1;
+
   return {
-    psychQuality: Math.min(1.15, psych * gateMult),
-    physioQuality: Math.min(1, physio * gateMult),
+    psychQuality: Math.min(1.15, psych * gateMult * maleQuality),
+    physioQuality: Math.min(1, physio * gateMult * maleQuality),
     erogenous: ero,
     pushWillingness,
     pushReadiness,

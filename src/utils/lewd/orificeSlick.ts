@@ -1,12 +1,14 @@
 /**
- * Multi-lubricant orifice slick layers.
- * Comfort gates deferred — this is the registry + writers/readers for Lab / verge.
+ * Multi-lubricant orifice slick layers (vagina | anus | mouth).
+ * Registry + writers/readers for Lab, verge dwell, act saliva/oil, and
+ * dilation×lube comfort (see orificeComfort). Cloth soil stays anonymous.
  */
 
 export type OrificeId = 'vagina' | 'anus' | 'mouth';
 
 export type LubricantKind =
   | 'vaginalSecretion'
+  | 'analBaseline'
   | 'saliva'
   | 'semen'
   | 'preEjaculate'
@@ -50,6 +52,13 @@ export const LUBRICANT_CATALOG: Record<LubricantKind, LubricantCatalogEntry> = {
     quality01: 0.72,
     evaporatePerHour: 4.2,
     note: 'Mid-high slick; exposed film lasts ~10–20 min unless refreshed.',
+  },
+  analBaseline: {
+    kind: 'analBaseline',
+    label: 'anal baseline',
+    quality01: 0.4,
+    evaporatePerHour: 1.2,
+    note: 'Default anal film at scene start; poorer than vaginal secretion; not enough alone for dry penis entry.',
   },
   saliva: {
     kind: 'saliva',

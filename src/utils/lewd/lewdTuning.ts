@@ -183,6 +183,38 @@ export const LEWD_TUNING = {
     noveltyBoostMax: 1.28,
     noveltyArousalBelow: 14,
 
+    /**
+     * ♂ arousal / readiness vs shared rates. Edge uses the shared edgeGainPerSec
+     * (no male mult) so firmness + mental heat outrun tip-building.
+     */
+    male: {
+      /** Base encounter arousal gain mult (receiving or giving). */
+      arousalGainMult: 1.75,
+      /**
+       * Extra mult when this beat is proactive giving (stacks with base).
+       * Giving is quality-poorer than receiving on soft paths — this closes the gap.
+       */
+      proactiveArousalGainMult: 1.55,
+      /**
+       * Scales proactive giver psych/physio quality up (hands/kiss give less
+       * raw physio than being touched; ♂ still heats from initiating).
+       */
+      proactiveQualityMult: 1.35,
+      /** Stronger early-touch novelty than the shared ♀-leaning curve. */
+      noveltyBoostMax: 1.5,
+      noveltyArousalBelow: 26,
+      /**
+       * Scales proactive pushRequiredArousal down — men get mentally ready
+       * to escalate sooner than the shared push curve.
+       */
+      pushRequiredArousalMult: 0.55,
+      /**
+       * Extra softCap headroom — giver erogenous is often lower than receiving
+       * (hands/kiss vs being touched), so ♂ mental heat would otherwise plateau early.
+       */
+      softCapBonus: 24,
+    },
+
     edgeArousalFloor: 32,
     /** Edge gain/sec at physioQuality=1 and erogenous=1. */
     edgeGainPerSec: 6.2,
@@ -205,26 +237,26 @@ export const LEWD_TUNING = {
 
     /**
      * ♂ encounter-local erection + pre-ejaculate (mirrors ♀ wetness erotic reward).
-     * Erection tracks arousal; precum beads tiny cloth spots (coin-capped) unless
-     * he climaxes into under/underneath genital stim (full load in worn clothes).
+     * Erection tracks arousal quickly from light stim; precum beads tiny cloth
+     * spots (coin-capped) unless he climaxes into under/underneath genital clothes.
      */
     maleErection: {
-      /** Arousal below: target firmness ~0 / decay. */
-      arousalOnset: 20,
-      /** Arousal at/above: approach full erection. */
-      arousalFull: 55,
-      /** Edge share toward firmness target (0–1 edge → this weight). */
-      edgeFirmWeight: 0.18,
-      /** Approach rate toward target firmness /sec. */
-      risePerSec: 0.28,
+      /** Arousal below: target firmness ~0 / decay. Light touch starts swell. */
+      arousalOnset: 8,
+      /** Arousal at/above: approach full erection (ahead of tip-building). */
+      arousalFull: 36,
+      /** Edge share toward firmness target — keep low so edge stays slow. */
+      edgeFirmWeight: 0.08,
+      /** Approach rate toward target firmness /sec (brief stim → firm). */
+      risePerSec: 0.52,
       /** Fall rate when target drops / idle. */
-      fallPerSec: 0.14,
+      fallPerSec: 0.16,
       /** Extra fall mult while refractory. */
       refractoryFallMult: 2.8,
       /** Firmness bands for Lab / prose (erection01 thresholds). */
-      bandSwelling: 0.22,
-      bandFirm: 0.55,
-      bandRigid: 0.82,
+      bandSwelling: 0.18,
+      bandFirm: 0.5,
+      bandRigid: 0.8,
       precum: {
         /** Need at least this erection01 to bead. */
         minErection01: 0.32,
@@ -499,6 +531,40 @@ export const LEWD_TUNING = {
       arousalFull: 64,
       /** Physio mult while objecting at full commit (tense vs willing). */
       physioMult: 0.88,
+    },
+    /**
+     * Lover-coax (arousal-only): affection+desire (trust soft) keep arousal
+     * climbing while psych is high, if phys &lt; physCeiling. Dies at psych
+     * hard-cap. Does not unlock acts; does not raise edge/tip or giver coax.
+     */
+    loverCoax: {
+      affectionWeight: 0.45,
+      desireWeight: 0.4,
+      trustWeight: 0.15,
+      desireHeatWeight: 0.08,
+      hurtPenalty: 0.22,
+      suspicionPenalty: 0.16,
+      /** Coax relief only while phys discomfort below this. */
+      physCeiling: 50,
+      /** Smooth drop starting this many points below physCeiling. */
+      physTaperSpan: 8,
+      /** Max gain floor at psych≈0 for coaxAffinity=1. */
+      coaxFloorAtClear: 0.88,
+      /**
+       * pow(1 − psych/hardCap, this). Sub-linear (~0.4) so lovers still
+       * warm through strain/overwhelm; floor hits 0 at hard-cap.
+       */
+      coaxPsychTaperPower: 0.4,
+      /**
+       * Fraction of overwhelm decay suppressed by full coax while below the
+       * break-approach band (1 = full suppress at coax=1).
+       */
+      decaySuppress: 0.92,
+      /**
+       * Psych points below hard-cap where overwhelm decay ramps back in
+       * even for high coax (so max-out still drains).
+       */
+      breakApproachSpan: 12,
     },
     /** Extra psych when deep act + warm bond. */
     psychWarmDeepBonus: 0.35,
@@ -825,10 +891,52 @@ export const LEWD_TUNING = {
       },
       /**
        * Mounted / cowgirl: share of her overflow reserved for partner crotch cloth.
-       * Full partner routing still stubby — amount is computed and optionally applied.
+       * Amount is computed; applying it to the partner unit is Lab/posture-optional
+       * (scene tags + full partner soil routing still thin).
        */
       partnerDripShareMounted: 0.55,
     },
+  },
+
+  /**
+   * Solo masturbation: dampened self-stim + solo psych; fantasy restores mental
+   * eroticism from eroticMemory (relationship × act intimacy × freshness).
+   * Physio stays self-dampened even with vivid fantasy.
+   */
+  masturbation: {
+    /** Hands-on self-stim vs partnered receiving physio. */
+    selfPhysioMult: 0.62,
+    /** Blank-mind mental eroticism vs partnered-style psych ref. */
+    soloPsychMult: 0.42,
+    /** Cap on fantasy-boosted psych (does not invent partner touch). */
+    fantasyPsychCeil: 0.95,
+    /** Witnessed memories weaker than participated. */
+    witnessedWeight: 0.72,
+    participatedWeight: 1,
+    /** Relationship blend for masturbator → imagined partner (sums ≈ 1). */
+    relationship: {
+      desire: 0.45,
+      desireHeat: 0.2,
+      affection: 0.18,
+      familiarity: 0.12,
+      warmth: 0.05,
+    },
+    /** actIntimacy / this → intimacy01 before curve. */
+    intimacyRef: 9,
+    /** >1 = deep acts matter more for fantasy. */
+    intimacyCurve: 1.15,
+    /** Mild same-sex Desire soft-cap dim on fantasy (not a hard block). */
+    orientationFantasyMult: 0.55,
+    /** Standing lust drop on climax (diminishes with prior climaxes). */
+    lustReliefOnClimax: 6,
+    lustReliefPerPriorClimax: 0.65,
+    lustReliefFloor: 2.5,
+    /** Memory freshness horizon (hours). */
+    memoryTtlHours: 60,
+    /** Freshness curve (>1 = faster late fade). */
+    freshnessCurve: 1.2,
+    /** Max stored erotic memories per unit. */
+    memoryCap: 8,
   },
 
   /**
@@ -859,6 +967,303 @@ export const LEWD_TUNING = {
     genitalPhysioMult: 1.0,
     /** Residual erogenous share for non-bodily actor parts (hands, etc.). */
     nonBodilyErogenousMult: 0.28,
+  },
+
+  /**
+   * Event-driven reaction overlay (orgasm clench, later NPC hands).
+   * Does not steal player attention budget.
+   */
+  reactions: {
+    /** Max concurrent reaction/NPC overlay channels. */
+    softCap: 4,
+    /**
+     * Flat fallbacks when a reaction fragment is missing / opts override.
+     * Authored curves live in lewdReactionPreloads (Phase B).
+     */
+    orgasmClenchSeconds: 6,
+    orgasmClenchIntensity: 7,
+    /** Underside wrapping grip runs this many intensity ranks cooler. */
+    undersideIntensityDelta: 1,
+    /**
+     * ♀ climax surge band → clench intensity / duration scale.
+     * modest = smaller tip; soaking = full surge.
+     */
+    surge: {
+      modest: { intensityDelta: -1, durationMult: 0.75 },
+      strong: { intensityDelta: 0, durationMult: 1 },
+      soaking: { intensityDelta: 1, durationMult: 1.25 },
+    },
+  },
+
+  /**
+   * Act lubricant deposits into orificeSlick (saliva / oil live).
+   * Deferred: partner precum/semen as act deposits on orifice targets
+   * (climax → cloth/cohort path already exists; this is rim/oral pre-load).
+   */
+  actDeposits: {
+    /**
+     * Saliva from tongue/lips on orifice targets (rim, lick, tongueProbe, …).
+     * amount = base × actionMult × intensity01 × holdScale (capped per beat).
+     */
+    saliva: {
+      /**
+       * Comfort uses wet×quality; saliva quality≈0.5 so ~0.24 wet clears
+       * analDryThreshold 0.12 — a short rim/probe bout should get there.
+       */
+      baseAmount01: 0.15,
+      /** Scale vs holdSeconds / defaultHoldSeconds (soft). */
+      holdScalePower: 0.55,
+      intensityDivisor: 10,
+      /** Cap total saliva added across all channels in one resolve. */
+      perBeatCap01: 0.36,
+      actionMult: {
+        tongueProbe: 1.35,
+        lick: 1.0,
+        tongueTrace: 0.95,
+        kissTongue: 0.85,
+        suckShallow: 0.75,
+        suckDeep: 0.9,
+        kissLips: 0.45,
+      },
+    },
+    /** Lab / inventory oil apply onto an orifice. */
+    oil: {
+      refinedAmount01: 0.42,
+      improvisedAmount01: 0.32,
+    },
+  },
+
+  /**
+   * ♀ orifice dilation + lubrication comfort (tease → probe → insert).
+   * Soft-cap chain: tease → 1 finger → 2 fingers → tip → shaft → full.
+   * Jumping the chain dilates faster but spikes recoverable discomfort.
+   */
+  orificePlay: {
+    /**
+     * Baseline anal film seeded on ♀ encounter / Lab reset.
+     * wet×quality must clear analDryThreshold so soft-cap-prepped tip
+     * insert is not dryRefuse on baseline alone (saliva/oil still help).
+     */
+    analBaselineAmount01: 0.34,
+    analBaselineQuality01: 0.42,
+    /**
+     * Effective comfort wet = wet01 × quality01.
+     * Below this, anal insert refuses; probe/tease may continue at verge.
+     */
+    analDryThreshold: 0.12,
+    /** Vaginal dry is softer — felt readiness already helps. */
+    vaginalDryThreshold: 0.08,
+    /**
+     * Soft-cap dilation01 each size class can gently raise toward.
+     * Next class becomes comfortable once dilation reaches the prior cap.
+     */
+    dilationSoftCapBySize: {
+      fingertip: 0.28, // tease → ready for 1 finger
+      finger: 0.45, // 1 finger → ready for 2
+      tongue: 0.45,
+      twoFinger: 0.62, // 2 fingers → ready for penis tip
+      threeFinger: 0.72, // 3 fingers (cap) → toward tip/shaft
+      penisTip: 0.82, // tip → ready for deep shaft
+      toyS: 0.82,
+      penis: 1.0, // deep shaft → full
+      toyM: 1.0,
+      toyL: 1.0,
+    },
+    /**
+     * Approach rate toward soft cap while coaxing / accepting (/sec).
+     * Slow on purpose: good-terms anal needs sustained correct prep
+     * (tease → finger → two → tip → deep), not a short coax beat.
+     */
+    softCapApproachPerSec: 0.014,
+    /**
+     * Jumping the chain: only mildly faster than gentle coax (/sec).
+     * Rough play still opens, but is not a shortcut past patient prep —
+     * the cost is sharp recoverable phys, not rapid capacity.
+     */
+    jumpDilationPerSec: 0.02,
+    /** Idle close rate when no orifice contact (scaled with slow coax). */
+    dilationFadePerSec: 0.0035,
+    /**
+     * Mild phys while gently stretching toward the soft cap (eases if you stay
+     * at/below capacity once opened).
+     */
+    gentleStretchPhysPerSec: 1.4,
+    /** Extra phys decay credit /sec while accepting at/below soft cap. */
+    settlePhysReliefPerSec: 2.2,
+    /** Stretch fatigue while gently opening (small). */
+    gentleStretchFatiguePerSec: 0.03,
+    /** Stretch fatigue decay while settled at/below soft cap. */
+    settleFatigueDecayPerSec: 0.06,
+    /** Idle / forcing fatigue decay (slower). */
+    stretchFatigueDecayPerSec: 0.02,
+    /** Phys /sec per size-rank jumped past open capacity (surprise finger ≈ 1). */
+    jumpPhysPerSecPerRank: 3.2,
+    /** Cap on jump phys so surprise stays sharp but not instant ruin. */
+    jumpPhysPerSecCap: 11,
+    /** Jump quality crush (still allows pleasure to return as distress settles). */
+    jumpQualityMult: 0.42,
+    /** Plug seed dilation when Lab/scene starts with held anal plug. */
+    analPlugSeedDilation01: 0.55,
+    analPlugSizeClass: 'toyS' as const,
+    /**
+     * openCapacity ≈ dilation01 mapped through these rank breakpoints.
+     * Ranks: fingertip1 · finger2 · twoFinger3 · threeFinger4 · tip5 · penis7 · toyL9.
+     */
+    capacityAtDilation: [
+      { dilation01: 0, rank: 1 },
+      { dilation01: 0.28, rank: 2 },
+      { dilation01: 0.45, rank: 3 },
+      { dilation01: 0.55, rank: 4 },
+      { dilation01: 0.62, rank: 5 },
+      { dilation01: 0.82, rank: 7 },
+      { dilation01: 1.0, rank: 9 },
+    ],
+    /** Probe may be this many ranks over capacity before counting as a jump. */
+    probeFitSlack: 0.35,
+    /** Insert fit slack (tip at exact capacity stays accepting). */
+    insertFitSlack: 0.15,
+    /** Intensity ≥ this (1–10) counts as sudden when jumping. */
+    suddenIntensityFloor: 5,
+    /** Phys discomfort /sec when forcing without counting as dry refuse. */
+    forcePhysPerSec: 6.5,
+    /** Phys /sec when attempting dry anal insert (on top of refuse). */
+    dryRefusePhysPerSec: 9,
+    /** Psych share of orifice phys chips (threat / reluctance). */
+    forcePsychShare: 0.55,
+    dryPsychShare: 0.75,
+    jumpPsychShare: 0.62,
+    /** Quality mult when coaxing / accepting / forcing / dryRefuse. */
+    qualityMult: {
+      coaxing: 1.08,
+      accepting: 1.0,
+      forcing: 0.32,
+      dryRefuse: 0.05,
+    },
+    /**
+     * Anal rubbed-raw fatigue (encounter-local raw01) → itemizedHealth.anus tear.
+     * Dryness is the primary stressor; forced oversize has exponential returns.
+     * Well-lubed coaxed play barely accumulates.
+     */
+    analRaw: {
+      /** (1 − lubeComfort01)^power — primary stressor. */
+      dryStressPower: 1.7,
+      dryStressWeight: 1.15,
+      /**
+       * Size ranks at/below this (finger = 2) only lightly raw the anus.
+       * Finger-scale ignores size/jump stress — dryness × intensity only.
+       * Serious fatigue scales above finger probe.
+       */
+      mildSizeRankMax: 2,
+      /** Stress mult on dry×band×intensity while sizeRank ≤ mildSizeRankMax. */
+      mildSizeMult: 0.08,
+      /**
+       * Above mildSizeRankMax: ramp toward full size/jump stress.
+       * overMild = sizeRank − mildSizeRankMax; mult = min(1, (overMild / span)^power).
+       */
+      sizeSeriousSpan: 1.75,
+      sizeSeriousPower: 0.95,
+      /** Size ranks over open capacity: (base^(over×exp)) − 1. */
+      sizeOverBase: 1.22,
+      sizeOverExp: 1.55,
+      /** Jump steps: (1 + extra)^(jumpSteps×exp) − 1. */
+      jumpExtra: 0.42,
+      jumpExp: 1.35,
+      /**
+       * Intensity 1–10 → stress mult.
+       * Low intensity stays gentle; high intensity hits hard.
+       * mult = floor + (1−floor)×(intensity/10)^power
+       */
+      intensityFloor: 0.18,
+      intensityPower: 1.45,
+      /** Band force mult on total stress. */
+      bandMult: {
+        tease: 0.06,
+        coaxing: 0.14,
+        accepting: 0.1,
+        forcing: 1.0,
+        dryRefuse: 1.4,
+      },
+      /** raw01 gained per second at stress = 1. */
+      rawPerSecAtRef: 0.11,
+      /** Cap stress before × rate (keeps one beat from insta-max except worst cases). */
+      stressCap: 4.5,
+      /**
+       * When lube ≥ this and fit is in-chain (accepting/coaxing), multiply stress
+       * by lubedAcceptingMult so skilled prep barely raws.
+       */
+      lubeSafeFloor: 0.28,
+      lubedAcceptingMult: 0.045,
+      /** Decay while accepting/coaxing with decent lube. */
+      rawDecayPerSecSoothing: 0.014,
+      /** Idle fade (no anal contact). */
+      rawDecayPerSecIdle: 0.007,
+      /** High raw adds phys discomfort (/sec at raw=1). */
+      rawPhysPerSecAtFull: 3.2,
+      /** Quality crush from raw (at raw=1). */
+      rawQualityTaxAtFull: 0.35,
+      /** First tear: raw ≥ threshold on a forcing/dryRefuse beat. */
+      tearRawThreshold: 0.88,
+      /** Health subtracted from itemizedHealth.anus on first tear. */
+      tearHealthLoss: 0.22,
+      /** Bleed split on tear (external-heavy tearing). */
+      tearBleedExternal: 0.78,
+      tearBleedInternal: 0.22,
+      /** Extra phys spike on the tear beat. */
+      tearPhysSpike: 10,
+      /** Further dry-forcing at raw≥aggravateRaw floors more health/sec. */
+      aggravateRawFloor: 0.95,
+      aggravateHealthPerSec: 0.04,
+    },
+    /**
+     * Vaginal rubbed-raw (more forgiving than anal — designed for penetration).
+     * Vaginal secretion is excellent lube; attentive foreplay barely raws.
+     * Dry + forced still punished → itemizedHealth.groin tear.
+     */
+    vaginalRaw: {
+      dryStressPower: 2.05,
+      dryStressWeight: 0.9,
+      /** Tip-scale and below stay mild when not jumping hard. */
+      mildSizeRankMax: 5,
+      mildSizeMult: 0.06,
+      /** Shaft still stresses, but slower ramp than anal. */
+      sizeSeriousSpan: 3.2,
+      sizeSeriousPower: 1.05,
+      sizeOverBase: 1.16,
+      sizeOverExp: 1.35,
+      jumpExtra: 0.32,
+      jumpExp: 1.2,
+      intensityFloor: 0.22,
+      intensityPower: 1.35,
+      bandMult: {
+        tease: 0.04,
+        coaxing: 0.1,
+        accepting: 0.07,
+        forcing: 1.0,
+        dryRefuse: 1.25,
+      },
+      rawPerSecAtRef: 0.07,
+      stressCap: 3.6,
+      lubeSafeFloor: 0.2,
+      /** Strong reward for secretion-ready accepting play. */
+      lubedAcceptingMult: 0.028,
+      /**
+       * Extra stress damp when comfort is largely natural secretion / felt wet
+       * (body-intended lube). Dry forced play does not get this.
+       */
+      secretionComfortFloor: 0.28,
+      secretionForgivenessMult: 0.42,
+      rawDecayPerSecSoothing: 0.02,
+      rawDecayPerSecIdle: 0.01,
+      rawPhysPerSecAtFull: 2.4,
+      rawQualityTaxAtFull: 0.28,
+      tearRawThreshold: 0.9,
+      tearHealthLoss: 0.16,
+      tearBleedExternal: 0.7,
+      tearBleedInternal: 0.3,
+      tearPhysSpike: 7.5,
+      aggravateRawFloor: 0.95,
+      aggravateHealthPerSec: 0.028,
+    },
   },
 
   defaultHoldSeconds: 8,

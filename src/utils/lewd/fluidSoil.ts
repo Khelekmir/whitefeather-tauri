@@ -1673,7 +1673,7 @@ export interface SoilCues {
   narratives: string[];
   /**
    * Lasting anal-verge pool has meaningful wetness (prefer over transient seat range).
-   * Hook for future multi-lubricant orifice slick — not a comfort gate yet.
+   * Passive feeder into orificeSlick.anus; comfort reads the orifice blend.
    */
   analVergeWet: boolean;
   /** Soft 0–1 from verge pool score vs vergeCapacity. */

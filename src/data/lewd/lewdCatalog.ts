@@ -266,7 +266,9 @@ export const lewdActionList = {
      * Finger probe — still deep for genital/anal; mouth pairs rely on soft-cap clamp.
      * Slightly eased from 8.5 so oral finger-play is not gate-locked above mouth soft-cap.
      */
-    fingerProbe: { intimacy: 7.8, stimulation: 6.2, access: 'orifice', description: "probing into the target area with a finger or fingers", verb: "probe", targets: ["mouthShallow", "mouthDeep", "vaginaShallow", "anus", "rectumShallow"] },
+    fingerProbe: { intimacy: 7.8, stimulation: 6.2, access: 'orifice', description: "probing into the target area with one finger", verb: "probe", targets: ["mouthShallow", "mouthDeep", "vaginaShallow", "anus", "rectumShallow"] },
+    twoFingerProbe: { intimacy: 8.1, stimulation: 6.6, access: 'orifice', description: "probing into the target area with two fingers", verb: "probe with two fingers", targets: ["mouthShallow", "vaginaShallow", "vaginaDeep", "anus", "rectumShallow"] },
+    threeFingerProbe: { intimacy: 8.4, stimulation: 7.0, access: 'orifice', description: "probing into the target area with three fingers", verb: "probe with three fingers", targets: ["vaginaShallow", "vaginaDeep", "anus", "rectumShallow"] },
     fingerStroke: { intimacy: 3.9, stimulation: 4.2, description: "stroking the target area with a finger or fingers", verb: "stroke", targets: ["head", "ear", "forehead", "cheeks", "lips", "neckNape", "neckSide", "throat", "clavicle", "armPit", "breast", "areola", "nipple", "shoulder", "armUpper", "armLower", "wrist", "handBack", "handPalm", "handFinger", "sternum", "bellyUpper", "bellyButton", "bellyLower", "backUpper", "backLower", "oblique", "iliacRegion", "monsVenus", "labiaMajora", "labiaMinora", "clitoris", "urethra", "vaginaShallow", "perinium", "buttockMain", "buttockUnderside", "anus", "rectumShallow", "hip", "thighInner", "thighBack", "thighFront", "kneeFront", "kneeBack", "calf", "ankle", "footTop", "footBottom", "footToe", "penisHead", "penisHeadUnderside", "penisShaft", "penisShaftUnderside", "testicles"] },
     spankSlap: { intimacy: 3.4, stimulation: 3.8, pain: 0.5, painKind: 'impact', description: "striking the target area with an open hand", verb: "spankSlap", targets: ["head", "ear", "cheeks", "lips", "breast", "shoulder", "armUpper", "armLower", "handBack", "handPalm", "bellyUpper", "bellyLower", "backUpper", "backLower", "oblique", "iliacRegion", "monsVenus", "labiaMajora", "buttockMain", "buttockUnderside", "hip", "thighInner", "thighBack", "thighFront", "kneeFront", "calf", "ankle", "footTop", "footBottom", "penisHead", "penisHeadUnderside", "penisShaft", "penisShaftUnderside", "testicles"] },
     footRub: { intimacy: 3.3, stimulation: 3.7, description: "stroking or rubbing the target area with a foot", verb: "rub", targets: ["head", "cheeks", "lips", "chin", "clavicle", "breast", "shoulder", "armPit", "armUpper", "armLower", "wrist", "handBack", "sternum", "bellyUpper", "bellyLower", "backUpper", "backLower", "oblique", "iliacRegion", "monsVenus", "labiaMajora", "buttockMain", "buttockUnderside", "hip", "thighInner", "thighBack", "thighFront", "kneeFront", "calf", "footTop", "footBottom", "penisHead", "penisHeadUnderside", "penisShaft", "penisShaftUnderside", "testicles"] },
@@ -275,9 +277,37 @@ export const lewdActionList = {
     /** Intimate, below PIV-tier gate; stim stays strong for the enveloped member. */
     paizuri: { intimacy: 7.0, stimulation: 7.6, description: "stroking an object between the breasts", verb: "surround and rub", targets: ["penisHead", "penisShaft"] },
     frotFemale: { intimacy: 3.1, stimulation: 3.6, description: "rubbing, rocking, or grinding against the target area with the female genitalia", verb: "rub against", targets: ["head", "tongue", "chin", "throat", "shoulder", "armPit", "armUpper", "armLower", "wrist", "handBack", "handPalm", "handFinger", "bellyUpper", "bellyLower", "backUpper", "backLower", "oblique", "monsVenus", "labiaMajora", "labiaMinora", "clitoris", "hip", "thighBack", "thighFront", "kneeFront", "kneeBack", "calf", "ankle", "footTop", "footBottom", "penisHeadUnderside", "penisShaft", "penisShaftUnderside"] },
-    vaginalContraction: { intimacy: 8.9, stimulation: 7.9, access: 'orifice', description: "flexing and clenching the vagina around an inserted member", verb: "clench around", targets: ["tongue", "handFinger", "penisHead", "penisShaft"] },
+    vaginalContraction: {
+      intimacy: 8.9,
+      stimulation: 7.9,
+      access: 'orifice',
+      description: "flexing and clenching the vagina around an inserted member",
+      verb: "clench around",
+      targets: [
+        "tongue",
+        "handFinger",
+        "penisHead",
+        "penisHeadUnderside",
+        "penisShaft",
+        "penisShaftUnderside",
+      ],
+    },
     /** Strong kink spike; kept below cartoon 9.9 so it does not outpace all other verbs. */
-    analContraction: { intimacy: 8.7, stimulation: 8.4, access: 'orifice', description: "flexing and clenching the anus around an inserted member", verb: "clench around", targets: ["tongue", "handFinger", "penisHead", "penisShaft"] },
+    analContraction: {
+      intimacy: 8.7,
+      stimulation: 8.4,
+      access: 'orifice',
+      description: "flexing and clenching the anus around an inserted member",
+      verb: "clench around",
+      targets: [
+        "tongue",
+        "handFinger",
+        "penisHead",
+        "penisHeadUnderside",
+        "penisShaft",
+        "penisShaftUnderside",
+      ],
+    },
     thighSqueeze: { intimacy: 3.0, stimulation: 2.6, description: "squeezing the inner thighs of a member mounted under the pelvis", verb: "squeeze", targets: ["head", "armUpper", "armLower", "wrist", "handBack", "handPalm", "oblique", "thighInner", "thighBack", "thighFront", "calf"] },
     intercruralSqueeze: { intimacy: 6.0, stimulation: 5.6, description: "simulated intercourse by squeezing the inner thighs around a penis", verb: "squeeze", targets: ["penisShaft"] },
     frotMale: { intimacy: 3.3, stimulation: 3.6, description: "rubbing, rocking, or grinding against the target area with the penis", verb: "rub against", targets: ["head", "ear", "forehead", "nose", "cheeks", "lips", "tongue", "mouthShallow", "mouthDeep", "chin", "neckNape", "neckSide", "throat", "clavicle", "armPit", "breast", "areola", "nipple", "shoulder", "armUpper", "armLower", "wrist", "handBack", "handPalm", "handFinger", "sternum", "bellyUpper", "bellyButton", "bellyLower", "backUpper", "backLower", "oblique", "iliacRegion", "monsVenus", "labiaMajora", "labiaMinora", "clitoris", "urethra", "perinium", "buttockMain", "buttockUnderside", "anus", "hip", "thighInner", "thighBack", "thighFront", "kneeFront", "kneeBack", "calf", "ankle", "footTop", "footBottom", "footToe"] },
@@ -297,15 +327,18 @@ export const lewdActionParts = {
         tongue: ["lick", "tongueProbe", "tongueTrace"],
         teeth: ["bite"],
         handPalm: ["handHold", "handPat", "palmRub", "spankSlap"],
-        handFinger: ["fingerTap", "fingerTrace", "fingerProbe", "fingerStroke", "thumbRub", "tickle", "pinch"],
+        handFinger: ["fingerTap", "fingerTrace", "fingerProbe", "twoFingerProbe", "threeFingerProbe", "fingerStroke", "thumbRub", "tickle", "pinch"],
         footBottom: ["footRub", "step"],
         footToe: ["toeTrace", "toeProbe"],
-        anus: ["analContraction"]
+        anus: ["analContraction"],
+        rectumShallow: ["analContraction"],
+        rectumDeep: ["analContraction"],
     },
     female: {
         breast: ["breastRub", "paizuri"],
         monsVenus: ["frotFemale"],
         vaginaShallow: ["vaginalContraction"],
+        vaginaDeep: ["vaginalContraction"],
         thighs: ["thighSqueeze", "intercruralSqueeze"]
     },
     male: {
@@ -330,8 +363,11 @@ export const lewdTalentConversionTable = {
     // vagina
     monsVenus: "vagina",
     vaginaShallow: "vagina",
-    // anus
+    vaginaDeep: "vagina",
+    // anus / rectum
     anus: "anus",
+    rectumShallow: "anus",
+    rectumDeep: "anus",
     // thighs
     thighs: "thighs",
     // penis

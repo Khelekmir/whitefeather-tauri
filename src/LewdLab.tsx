@@ -15,6 +15,8 @@ import type {
 import {
   intimacyBudgetFromBond,
   bondFromEdge,
+  loverCoaxAffinity01,
+  loverCoaxGainFloor,
   resolveMeltBudgetCredit,
 } from './utils/lewd/intimacyBond';
 import {
@@ -71,7 +73,21 @@ import {
   launderCrotchLayers,
   launderUnderwear,
 } from './utils/lewd/fluidSoil';
+import {
+  advanceEroticMemory,
+  clearEroticMemory,
+  eroticMemoryFreshness01,
+  formatEroticMemoryLabel,
+  listFantasyCandidates,
+  rememberEroticEvent,
+} from './utils/lewd/eroticMemory';
 import { advanceStandingLust } from './utils/lewd/lustDrive';
+import {
+  defaultSoloGenitalChannel,
+  resolveMasturbationBeat,
+  scoreMasturbationFantasy,
+  type MasturbationFantasyFocus,
+} from './utils/lewd/masturbation';
 import {
   advanceFemalePhysiology,
   calcHormones,
@@ -83,6 +99,23 @@ import {
   wrapCycleHour,
 } from './utils/lewd/ovulationCycle';
 import { resolveLewdChannels } from './utils/lewd/resolveLewdMove';
+import {
+  formatPenetrationContact,
+  penetrationContactFromChannels,
+} from './utils/lewd/penetrationContact';
+import {
+  isReactionChannel,
+  planOrgasmContractions,
+} from './utils/lewd/lewdReactions';
+import { applyOrificeOil } from './utils/lewd/actLubricantDeposit';
+import {
+  clearAnalSlick,
+  ensureAnalBaselineSlick,
+  readOrificePlayFromEncounter,
+  seedAnalPlug,
+  writeOrificePlayToEncounter,
+} from './utils/lewd/orificePlayState';
+import { blendOrificeSlick } from './utils/lewd/orificeSlick';
 import { describeUnderwearWetness } from './utils/lewd/undergarmentWetnessFlavor';
 import { expandPreload } from './utils/lewd/expandPreload';
 import {
@@ -142,7 +175,9 @@ function defaultChannel(
 }
 
 function channelLabel(ch: LewdChannel): string {
-  return `${ch.actionId}→${ch.targetPart}`;
+  const src =
+    ch.source === 'reaction' ? 'rx·' : ch.source === 'npc' ? 'npc·' : '';
+  return `${src}${ch.actorPart}:${ch.actionId}→${ch.targetPart}`;
 }
 
 const DEFAULT_PROACTIVE = 'unit_sain';
@@ -298,6 +333,28 @@ function LewdLab() {
     buildCastRelationshipGraph(listDetailedCharacters())
   );
   const [log, setLog] = useState<string[]>([]);
+  /** Partnered sandbox vs solo masturbation harness. */
+  const [labMode, setLabMode] = useState<'partnered' | 'solo'>('partnered');
+  /** Lab clock (hours) for erotic-memory freshness. */
+  const [labClockHours, setLabClockHours] = useState(0);
+  const [fantasyMemoryId, setFantasyMemoryId] = useState<string>('none');
+  const [fantasyOverrideOn, setFantasyOverrideOn] = useState(false);
+  const [fantasyOverridePartnerId, setFantasyOverridePartnerId] = useState(
+    DEFAULT_PROACTIVE
+  );
+  const [fantasyOverrideIntimacy, setFantasyOverrideIntimacy] = useState(7);
+  const [fantasyOverrideKind, setFantasyOverrideKind] = useState<
+    'participated' | 'witnessed'
+  >('participated');
+  const [seedMemoryKind, setSeedMemoryKind] = useState<
+    'participated' | 'witnessed'
+  >('participated');
+  const [seedMemoryPartnerId, setSeedMemoryPartnerId] = useState(DEFAULT_PROACTIVE);
+  const [seedMemoryIntimacy, setSeedMemoryIntimacy] = useState(6.5);
+  /** Orgasm → orifice clench overlay (role-flipped resolve). */
+  const [reactionsEnabled, setReactionsEnabled] = useState(true);
+  /** Lab seed: scene starts with anal plug held (elevated dilation). */
+  const [analPlugSeed, setAnalPlugSeed] = useState(false);
 
   useEffect(() => {
     setProactive(cloneHydrated(proactiveId));
@@ -305,11 +362,30 @@ function LewdLab() {
   }, [proactiveId]);
 
   useEffect(() => {
-    const next = cloneHydrated(recipientId);
+    const cloned = cloneHydrated(recipientId);
+    if (!cloned) return;
+    const next =
+      cloned.sex === 'F' ? ensureAnalBaselineSlick(cloned) : cloned;
     setRecipient(next);
-    setEncounter(createEncounterArousalState());
+    let enc = createEncounterArousalState();
+    if (analPlugSeed && next.sex === 'F') {
+      enc = writeOrificePlayToEncounter(enc, seedAnalPlug(enc.orificePlay));
+    }
+    setEncounter(enc);
     setItemsById(cloneRecipientItems(recipientId));
-  }, [recipientId]);
+    setFantasyMemoryId('none');
+  }, [recipientId, analPlugSeed]);
+
+  useEffect(() => {
+    if (labMode !== 'solo' || !recipient) return;
+    setChannels([
+      {
+        ...defaultSoloGenitalChannel(recipient.sex, 5, 'underneath'),
+        durationSeconds: defaultDuration,
+        remainingSeconds: defaultDuration,
+      },
+    ]);
+  }, [labMode, recipient?.id, recipient?.sex, defaultDuration]);
 
   useEffect(() => {
     if (!proactive || !recipient || proactive.id === recipient.id) return;
@@ -317,20 +393,26 @@ function LewdLab() {
   }, [proactive, recipient]);
 
   // Keep each channel's action/target valid when parts or sex change.
+  // Reaction overlays are playback-only — never sanitize them as editor channels
+  // (that remaps penis grips onto the Lab recipient, e.g. analContraction→tongue).
   useEffect(() => {
-    if (!proactive || !recipient) return;
+    if (!recipient) return;
+    const actor = labMode === 'solo' ? recipient : proactive;
+    if (!actor) return;
     setChannels((prev) =>
-      prev.map((ch) => {
-        const acts = actionsForActorPart(proactive.sex, ch.actorPart);
-        const actionId = acts.includes(ch.actionId) ? ch.actionId : acts[0] ?? ch.actionId;
-        const targs = validTargetsForAction(actionId, recipient.sex);
-        const targetPart = targs.includes(ch.targetPart)
-          ? ch.targetPart
-          : targs[0] ?? ch.targetPart;
-        return { ...ch, actionId, targetPart };
-      })
+      prev
+        .filter((ch) => !isReactionChannel(ch))
+        .map((ch) => {
+          const acts = actionsForActorPart(actor.sex, ch.actorPart);
+          const actionId = acts.includes(ch.actionId) ? ch.actionId : acts[0] ?? ch.actionId;
+          const targs = validTargetsForAction(actionId, recipient.sex);
+          const targetPart = targs.includes(ch.targetPart)
+            ? ch.targetPart
+            : targs[0] ?? ch.targetPart;
+          return { ...ch, actionId, targetPart };
+        })
     );
-  }, [proactive, recipient]);
+  }, [proactive, recipient, labMode]);
 
   const pairingBlocked =
     proactive && recipient
@@ -344,7 +426,8 @@ function LewdLab() {
     proactive && recipient ? sexualDesireAllowed(proactive, recipient) : false;
 
   const attentionCost = totalAttentionCost(channels);
-  const actorParts = proactive ? listActorParts(proactive.sex) : [];
+  const channelActor = labMode === 'solo' ? recipient : proactive;
+  const actorParts = channelActor ? listActorParts(channelActor.sex) : [];
 
   /** How the recipient feels about the proactive partner (gates intimacy). */
   const recipientToProactive =
@@ -368,6 +451,12 @@ function LewdLab() {
   );
   const mindBand = psychDiscomfortBand(
     encounter.discomfortPsych ?? encounter.discomfort ?? 0
+  );
+  const coaxAffinity = loverCoaxAffinity01(bond);
+  const coaxFloor = loverCoaxGainFloor(
+    bond,
+    encounter.discomfortPsych ?? encounter.discomfort ?? 0,
+    encounter.discomfortPhys ?? encounter.discomfort ?? 0
   );
 
   const pushLog = (line: string) => {
@@ -532,9 +621,11 @@ function LewdLab() {
       prev.map((ch, i) => {
         if (i !== index) return ch;
         const next = { ...ch, ...patch };
-        if (!proactive || !recipient) return next;
+        if (!recipient) return next;
+        const actor = labMode === 'solo' ? recipient : proactive;
+        if (!actor) return next;
         if (patch.actorPart) {
-          const acts = actionsForActorPart(proactive.sex, next.actorPart);
+          const acts = actionsForActorPart(actor.sex, next.actorPart);
           next.actionId = acts.includes(next.actionId) ? next.actionId : acts[0] ?? next.actionId;
         }
         if (patch.actorPart || patch.actionId) {
@@ -546,6 +637,36 @@ function LewdLab() {
         return next;
       })
     );
+  };
+
+  const soloFantasyFocus = (): MasturbationFantasyFocus => {
+    if (fantasyOverrideOn) {
+      return {
+        kind: 'override',
+        partnerIds: [fantasyOverridePartnerId],
+        actIntimacy: fantasyOverrideIntimacy,
+        memoryKind: fantasyOverrideKind,
+        freshness01: 1,
+      };
+    }
+    if (fantasyMemoryId !== 'none') {
+      return { kind: 'memory', memoryId: fantasyMemoryId };
+    }
+    return { kind: 'none' };
+  };
+
+  const unitsByIdForFantasy = (): Record<string, DetailedUnit> => {
+    const map: Record<string, DetailedUnit> = {};
+    for (const u of cast) {
+      const live =
+        u.id === recipient?.id
+          ? recipient
+          : u.id === proactive?.id
+            ? proactive
+            : cloneHydrated(u.id);
+      if (live) map[u.id] = live;
+    }
+    return map;
   };
 
   const addChannel = () => {
@@ -579,29 +700,138 @@ function LewdLab() {
   };
 
   /**
-   * Real-time playback: Play re-arms every channel to its duration, then each
-   * game-second is resolved live. Channels that finish drop out; others keep
-   * going. Click Play again to re-initiate the programmed acts.
+   * Solo masturbation playback (recipient as self).
+   */
+  const onPerformSolo = () => {
+    if (!recipient) return;
+    if (isStepping) return;
+    if (channels.length < 1) return;
+
+    let localChannels = channels.map((c) =>
+      withTiming(
+        { ...c, remainingSeconds: c.durationSeconds ?? defaultDuration },
+        c.durationSeconds ?? defaultDuration
+      )
+    );
+    setChannels(localChannels);
+
+    const runId = ++stepRunIdRef.current;
+    setIsStepping(true);
+    setStepPauseNote('Solo playback…');
+    const focus = soloFantasyFocus();
+    pushLog(
+      `Begin solo (${stepPaceMs}ms / s) — fantasy ${
+        focus.kind === 'none' ? 'blank mind' : focus.kind
+      }`
+    );
+
+    let localEncounter = encounter;
+    let localUnit = recipient;
+    let localItems = itemsById;
+    let steps = 0;
+    const maxSteps = 120;
+    const unitsById = unitsByIdForFantasy();
+    const delay = (ms: number) =>
+      new Promise<void>((resolve) => {
+        window.setTimeout(resolve, ms);
+      });
+
+    void (async () => {
+      try {
+        while (steps < maxSteps) {
+          if (stepRunIdRef.current !== runId) return;
+          const active = localChannels.filter((c) => (c.remainingSeconds ?? 0) > 0);
+          if (active.length < 1) {
+            const note = `Solo finished after ${steps}s.`;
+            setStepPauseNote(note);
+            pushLog(note);
+            break;
+          }
+          const result = resolveMasturbationBeat({
+            unit: localUnit,
+            channels: active,
+            holdSeconds: 1,
+            encounter: localEncounter,
+            fantasy: focus,
+            relationships: relGraph,
+            itemsById: localItems,
+            nowHours: labClockHours,
+            unitsById,
+          });
+          localEncounter = result.encounter;
+          localUnit = result.unitAfter;
+          steps += 1;
+          localChannels = localChannels.map((c) => {
+            const rem = c.remainingSeconds ?? 0;
+            if (rem <= 0) return c;
+            return { ...c, remainingSeconds: rem - 1 };
+          });
+          setChannels(localChannels);
+          setEncounter(localEncounter);
+          setRecipient(localUnit);
+          setStepPauseNote(
+            `Solo t+${steps}s · A ${result.encounter.arousal.toFixed(0)} E ${result.encounter.edge.toFixed(0)} · psych ${result.psychQuality.toFixed(2)} (solo ${result.soloPsychBase.toFixed(2)} → fantasy ${(result.fantasy.fantasy01 * 100).toFixed(0)}%)`
+          );
+          if (steps === 1 || steps % 5 === 0 || result.climaxed) {
+            pushLog(
+              `solo t+${steps}s: ${result.band.toUpperCase()} · A ${result.encounter.arousal.toFixed(0)} E ${result.encounter.edge.toFixed(0)} · ${result.fantasy.label}${
+                result.lubricationNote ? ` · ${result.lubricationNote}` : ''
+              }`
+            );
+          }
+          if (result.climaxed) {
+            pushLog(
+              `Solo climax · lust ${result.lustFrom.toFixed(0)}→${result.lustTo.toFixed(0)}`
+            );
+          }
+          await delay(stepPaceMs);
+        }
+      } finally {
+        if (stepRunIdRef.current === runId) {
+          setIsStepping(false);
+        }
+      }
+    })();
+  };
+
+  /**
+   * Real-time playback: Play re-arms every player channel to its duration, then
+   * each game-second is resolved live. Orgasm clench (and later NPC) reactions
+   * live in a playback-only overlay — they never enter the channel editor, so
+   * they cannot inflate the Max-4 resolve list or get sex-remapped to tongue.
    */
   const onPerform = () => {
+    if (labMode === 'solo') {
+      onPerformSolo();
+      return;
+    }
     if (!proactive || !recipient) return;
     if (isStepping) return;
     if (!encounterOk) {
       pushLog('Blocked — M→M erotic content is design-gated.');
       return;
     }
-    if (channels.length < 1) return;
 
-    // Re-initiate: remaining = duration for every programmed channel.
-    let localChannels = channels.map((ch) => {
+    // Player channels only — strip any leftover reaction rows from a prior bug.
+    const playerSeed = channels.filter((ch) => !isReactionChannel(ch));
+    if (playerSeed.length < 1) return;
+
+    let localChannels: LewdChannel[] = playerSeed.map((ch) => {
       const durationSeconds = Math.max(1, ch.durationSeconds ?? defaultDuration);
       return { ...ch, durationSeconds, remainingSeconds: durationSeconds };
     });
+    /**
+     * Playback-only multi-phase reaction queue (orgasm clench curves).
+     * Never written into `channels` / the Lab editor.
+     */
+    let reactionPhaseQueue: { label: string; channels: LewdChannel[] }[] = [];
     setChannels(localChannels);
 
     const runId = ++stepRunIdRef.current;
     setIsStepping(true);
-    setStepPauseNote(`Playing out… (${localChannels.length} channel${localChannels.length === 1 ? '' : 's'})`);
+    setStepPauseNote(
+      `Playing out… (${localChannels.length} channel${localChannels.length === 1 ? '' : 's'})`
+    );
     pushLog(
       `Begin playback (${stepPaceMs}ms / game-second) — ${localChannels
         .map((c) => `${channelLabel(c)} ${c.durationSeconds}s`)
@@ -621,78 +851,257 @@ function LewdLab() {
         window.setTimeout(resolve, ms);
       });
 
+    const tickRemaining = (list: LewdChannel[]) =>
+      list.map((c) => {
+        const rem = c.remainingSeconds ?? 0;
+        if (rem <= 0) return c;
+        return { ...c, remainingSeconds: rem - 1 };
+      });
+
     void (async () => {
       try {
         while (steps < maxSteps) {
           if (stepRunIdRef.current !== runId) return;
 
-          const active = localChannels.filter((c) => (c.remainingSeconds ?? 0) > 0);
-          if (active.length < 1) {
+          const playerActive = localChannels.filter(
+            (c) => (c.remainingSeconds ?? 0) > 0
+          );
+          let reactionOverlay = reactionPhaseQueue[0]?.channels ?? [];
+          let reactionActive = reactionOverlay.filter(
+            (c) => (c.remainingSeconds ?? 0) > 0
+          );
+          if (playerActive.length < 1 && reactionActive.length < 1) {
             const note = `Finished after ${steps}s — click Play to re-initiate.`;
             setStepPauseNote(note);
             pushLog(note);
             break;
           }
 
-          const result = resolveLewdChannels({
-            proactive: localProactive,
-            recipient: localRecipient,
-            channels: active,
-            holdSeconds: 1,
-            encounter: localEncounter,
-            proactiveEncounter: localProEncounter,
-            relationships: relGraph,
-            itemsById: localItems,
-          });
-          localEncounter = result.encounter;
-          localProEncounter = result.proactiveEncounter;
-          localRecipient = result.recipientAfterSoil;
-          if (result.proactiveAfterSoil) {
-            localProactive = result.proactiveAfterSoil;
+          const edgeBeforeBeat = localEncounter.edge;
+          const recipientIdForRx = localRecipient.id;
+
+          let result =
+            playerActive.length > 0
+              ? resolveLewdChannels({
+                  proactive: localProactive,
+                  recipient: localRecipient,
+                  channels: playerActive,
+                  holdSeconds: 1,
+                  encounter: localEncounter,
+                  proactiveEncounter: localProEncounter,
+                  relationships: relGraph,
+                  itemsById: localItems,
+                })
+              : null;
+
+          if (result) {
+            localEncounter = result.encounter;
+            localProEncounter = result.proactiveEncounter;
+            localRecipient = result.recipientAfterSoil;
+            if (result.proactiveAfterSoil) {
+              localProactive = result.proactiveAfterSoil;
+            }
           }
+
+          // Orgasm → orifice clench overlay (recipient body acts on penetrator).
+          // Replace the phase queue; do not merge into editor channels.
+          if (reactionsEnabled && result?.climaxed) {
+            const surgeBand = result.discharges.find(
+              (d) =>
+                d.fromId === recipientIdForRx &&
+                d.kind === 'femaleEjaculate' &&
+                d.surgeBand
+            )?.surgeBand;
+            const plan = planOrgasmContractions(playerActive, {
+              surgeBand,
+              edgeAtClimax: edgeBeforeBeat,
+            });
+            if (plan) {
+              reactionPhaseQueue = plan.phases.map((p) => ({
+                label: p.label,
+                channels: p.channels.map((c) => ({ ...c })),
+              }));
+              reactionOverlay = reactionPhaseQueue[0]?.channels ?? [];
+              reactionActive = reactionOverlay.filter(
+                (c) => (c.remainingSeconds ?? 0) > 0
+              );
+              const phaseLabels = plan.phases
+                .map((p) => `${p.label} ${p.durationSeconds}s@${p.channels[0]?.intensity ?? '?'}`)
+                .join(' → ');
+              pushLog(
+                `Reaction · ${plan.label} · ${formatPenetrationContact(plan.contact)} · ${phaseLabels}`
+              );
+            }
+          }
+
+          if (reactionActive.length > 0) {
+            const rx = resolveLewdChannels({
+              proactive: localRecipient,
+              recipient: localProactive,
+              channels: reactionActive,
+              holdSeconds: 1,
+              encounter: localProEncounter,
+              proactiveEncounter: localEncounter,
+              relationships: relGraph,
+              itemsById: localItems,
+            });
+            // Flipped: rx.encounter = original proactive (penetrator receiving clench).
+            localProEncounter = rx.encounter;
+            localEncounter = rx.proactiveEncounter;
+            localProactive = rx.recipientAfterSoil;
+            if (rx.proactiveAfterSoil) {
+              localRecipient = rx.proactiveAfterSoil;
+            }
+            if (steps === 1 || steps % 5 === 0 || rx.climaxed) {
+              const phaseLabel = reactionPhaseQueue[0]?.label;
+              pushLog(
+                `rx t+${steps}s${phaseLabel ? ` [${phaseLabel}]` : ''}: penetrator A ${rx.encounter.arousal.toFixed(0)} E ${rx.encounter.edge.toFixed(0)} · ${reactionActive.map((c) => channelLabel(c)).join(' + ')}`
+              );
+            }
+          }
+
           steps += 1;
           setItemsById({ ...localItems });
 
-          const beforeRem = localChannels.map((c) => c.remainingSeconds ?? 0);
-          localChannels = localChannels.map((c) => {
-            const rem = c.remainingSeconds ?? 0;
-            if (rem <= 0) return c;
-            return { ...c, remainingSeconds: rem - 1 };
-          });
-          const expiredLabels = localChannels
-            .map((c, i) =>
-              beforeRem[i]! > 0 && (c.remainingSeconds ?? 0) <= 0
+          const beforePlayerRem = localChannels.map((c) => c.remainingSeconds ?? 0);
+          const beforeRxRem = reactionOverlay.map((c) => c.remainingSeconds ?? 0);
+          localChannels = tickRemaining(localChannels);
+          if (reactionPhaseQueue.length > 0) {
+            reactionPhaseQueue[0] = {
+              ...reactionPhaseQueue[0]!,
+              channels: tickRemaining(reactionPhaseQueue[0]!.channels),
+            };
+            reactionOverlay = reactionPhaseQueue[0]!.channels;
+          }
+
+          const expiredLabels = [
+            ...localChannels.map((c, i) =>
+              beforePlayerRem[i]! > 0 && (c.remainingSeconds ?? 0) <= 0
                 ? channelLabel(c)
                 : null
-            )
-            .filter((x): x is string => !!x);
+            ),
+            ...reactionOverlay.map((c, i) =>
+              beforeRxRem[i]! > 0 && (c.remainingSeconds ?? 0) <= 0
+                ? channelLabel(c)
+                : null
+            ),
+          ].filter((x): x is string => !!x);
 
-          // Paint this game-second so meters / remaining tick live.
+          // Advance clench curve when the current phase is spent.
+          if (
+            reactionPhaseQueue.length > 0 &&
+            reactionPhaseQueue[0]!.channels.every(
+              (c) => (c.remainingSeconds ?? 0) <= 0
+            )
+          ) {
+            const finishedPhase = reactionPhaseQueue[0]!.label;
+            reactionPhaseQueue = reactionPhaseQueue.slice(1);
+            if (reactionPhaseQueue.length > 0) {
+              pushLog(
+                `Reaction phase ended: ${finishedPhase} → ${reactionPhaseQueue[0]!.label}`
+              );
+            } else {
+              pushLog(`Reaction phase ended: ${finishedPhase}`);
+            }
+          }
+
+          // Paint player channels only — overlay stays local to this run.
           setChannels(localChannels);
           setEncounter(localEncounter);
           setProactiveEncounter(localProEncounter);
           setRecipient(localRecipient);
           setProactive(localProactive);
+          const stillRx = (reactionPhaseQueue[0]?.channels ?? []).filter(
+            (c) => (c.remainingSeconds ?? 0) > 0
+          );
           setStepPauseNote(
-            `Playing t+${steps}s… ${active.map((c) => channelLabel(c)).join(' + ')}`
+            `Playing t+${steps}s… ${[
+              ...playerActive.map((c) => channelLabel(c)),
+              ...stillRx.map((c) => channelLabel(c)),
+            ].join(' + ') || 'idle'}`
           );
-          pushLog(
-            `t+${steps}s: ${result.band.toUpperCase()} · A ${result.encounter.arousal.toFixed(0)} E ${result.encounter.edge.toFixed(0)}${
-              result.lubricationNote ? ` · ${result.lubricationNote}` : ''
-            }${
-              result.partnerDrip01 && result.partnerDrip01 > 0.002
-                ? ` · partner drip ${(result.partnerDrip01 * 100).toFixed(0)}%`
-                : ''
-            } · rem ${localChannels
-              .map((c) => `${c.actionId}:${c.remainingSeconds ?? 0}`)
-              .join(' ')}`
-          );
+          if (result) {
+            const remBits = [
+              ...localChannels.map(
+                (c) => `${c.actionId}:${c.remainingSeconds ?? 0}`
+              ),
+              ...(reactionPhaseQueue[0]?.channels ?? []).map(
+                (c) => `rx·${c.actionId}:${c.remainingSeconds ?? 0}`
+              ),
+            ];
+            pushLog(
+              `t+${steps}s: ${result.band.toUpperCase()} · A ${result.encounter.arousal.toFixed(0)} E ${result.encounter.edge.toFixed(0)}${
+                result.lubricationNote ? ` · ${result.lubricationNote}` : ''
+              }${
+                result.orificeComfortBand
+                  ? ` · orifice ${result.orificeComfortBand}`
+                  : ''
+              }${
+                result.partnerDrip01 && result.partnerDrip01 > 0.002
+                  ? ` · partner drip ${(result.partnerDrip01 * 100).toFixed(0)}%`
+                  : ''
+              } · rem ${remBits.join(' ')}`
+            );
+            if (
+              result.orificeComfortNote &&
+              (result.orificeComfortBand === 'forcing' ||
+                result.orificeComfortBand === 'dryRefuse' ||
+                steps === 1 ||
+                steps % 5 === 0)
+            ) {
+              pushLog(`orifice · ${result.orificeComfortNote}`);
+            }
+            if (result.analTear && result.analTearNote) {
+              pushLog(`injury · ${result.analTearNote}`);
+            }
+            if (result.vaginalTear && result.vaginalTearNote) {
+              pushLog(`injury · ${result.vaginalTearNote}`);
+            }
+            if (result.lubricantDepositNote) {
+              pushLog(`lube · ${result.lubricantDepositNote}`);
+            }
+          }
+          if (result?.climaxed || result?.proactiveClimaxed) {
+            const actInt = Math.max(
+              0,
+              ...playerActive.map((c) => getLewdAction(c.actionId)?.intimacy ?? 0)
+            );
+            const parts = playerActive.map((c) => c.targetPart);
+            const actionId = playerActive[0]?.actionId;
+            localRecipient = rememberEroticEvent(localRecipient, {
+              kind: 'participated',
+              partnerIds: [localProactive.id],
+              actionId,
+              actIntimacy: actInt,
+              targetParts: parts,
+              recordedAtHours: labClockHours,
+            });
+            localProactive = rememberEroticEvent(localProactive, {
+              kind: 'participated',
+              partnerIds: [localRecipient.id],
+              actionId,
+              actIntimacy: actInt,
+              targetParts: parts,
+              recordedAtHours: labClockHours,
+            });
+            setRecipient(localRecipient);
+            setProactive(localProactive);
+            pushLog(
+              `Erotic memory · participated (intimacy ${actInt.toFixed(1)}) written for both`
+            );
+          }
           if (expiredLabels.length > 0) {
-            const still = localChannels.filter((c) => (c.remainingSeconds ?? 0) > 0);
+            const stillPlayer = localChannels.filter(
+              (c) => (c.remainingSeconds ?? 0) > 0
+            );
+            const stillRxAfter = (reactionPhaseQueue[0]?.channels ?? []).filter(
+              (c) => (c.remainingSeconds ?? 0) > 0
+            );
+            const continuing = [...stillPlayer, ...stillRxAfter];
             pushLog(
               `Ended: ${expiredLabels.join(', ')}${
-                still.length
-                  ? ` · continuing: ${still.map((c) => channelLabel(c)).join(', ')}`
+                continuing.length
+                  ? ` · continuing: ${continuing.map((c) => channelLabel(c)).join(', ')}`
                   : ''
               }`
             );
@@ -705,6 +1114,8 @@ function LewdLab() {
         pushLog(`Error: ${e instanceof Error ? e.message : String(e)}`);
         setStepPauseNote('Playback aborted (error).');
       } finally {
+        // Ensure editor never keeps a stray reaction row after the run.
+        setChannels((prev) => prev.filter((ch) => !isReactionChannel(ch)));
         if (stepRunIdRef.current === runId) {
           setIsStepping(false);
         }
@@ -912,13 +1323,74 @@ function LewdLab() {
   const onResetArousal = () => {
     const posture = encounter.posture ?? 'standing';
     const proPosture = proactiveEncounter.posture ?? posture;
-    setEncounter({ ...createEncounterArousalState(), posture });
+    let enc: EncounterArousalState = {
+      ...createEncounterArousalState(),
+      posture,
+    };
+    if (analPlugSeed && recipient?.sex === 'F') {
+      enc = writeOrificePlayToEncounter(enc, seedAnalPlug(enc.orificePlay));
+    }
+    setEncounter(enc);
     setProactiveEncounter({
       ...createEncounterArousalState(),
       posture: proPosture,
     });
-    pushLog(`Encounter meters reset (recipient + proactive) · posture ${posture}.`);
+    if (recipient?.sex === 'F') {
+      // Re-init baseline: drop anus key then ensure.
+      const wiped = {
+        ...recipient,
+        lewdStats: {
+          ...recipient.lewdStats,
+          dynamic: {
+            ...recipient.lewdStats.dynamic,
+            orificeSlick: {
+              ...recipient.lewdStats.dynamic.orificeSlick,
+              anus: undefined,
+            },
+          },
+        },
+      };
+      setRecipient(ensureAnalBaselineSlick(wiped as typeof recipient));
+    }
+    pushLog(
+      `Encounter meters reset (recipient + proactive) · posture ${posture}${
+        analPlugSeed ? ' · anal plug seeded' : ''
+      }.`
+    );
   };
+
+  const seedSoloMemory = () => {
+    if (!recipient) return;
+    const next = rememberEroticEvent(recipient, {
+      kind: seedMemoryKind,
+      partnerIds: [seedMemoryPartnerId],
+      actIntimacy: seedMemoryIntimacy,
+      actionId: 'seeded',
+      recordedAtHours: labClockHours,
+    });
+    setRecipient(advanceEroticMemory(next, labClockHours));
+    pushLog(
+      `Seeded ${seedMemoryKind} memory of ${seedMemoryPartnerId} @ intimacy ${seedMemoryIntimacy}`
+    );
+  };
+
+  const clearSoloMemory = () => {
+    if (!recipient) return;
+    setRecipient(clearEroticMemory(recipient));
+    setFantasyMemoryId('none');
+    pushLog('Cleared erotic memory.');
+  };
+
+  const ageSoloMemory = (hours: number) => {
+    const nextClock = labClockHours + hours;
+    setLabClockHours(nextClock);
+    if (!recipient) return;
+    setRecipient(advanceEroticMemory(recipient, nextClock));
+    pushLog(`Lab clock +${hours}h → ${nextClock}h (memory aged).`);
+  };
+
+  const playEnabled =
+    channels.length >= 1 && (labMode === 'solo' || encounterOk);
 
   const performButton = (opts?: { compact?: boolean }) =>
     isStepping ? (
@@ -938,14 +1410,16 @@ function LewdLab() {
       <button
         type="button"
         onClick={onPerform}
-        disabled={!encounterOk || channels.length < 1}
+        disabled={!playEnabled}
         style={{
           ...performBtnBase,
-          opacity: !encounterOk || channels.length < 1 ? 0.45 : 1,
+          opacity: !playEnabled ? 0.45 : 1,
           width: opts?.compact ? undefined : '100%',
         }}
       >
-        {`Play in real time (${channels.length} channel${channels.length === 1 ? '' : 's'})`}
+        {labMode === 'solo'
+          ? `Play solo (${channels.length} channel${channels.length === 1 ? '' : 's'})`
+          : `Play in real time (${channels.length} channel${channels.length === 1 ? '' : 's'})`}
       </button>
     );
 
@@ -966,10 +1440,323 @@ function LewdLab() {
       <header style={{ marginBottom: 22, textAlign: 'center' }}>
         <h1 style={{ margin: 0, fontSize: '2rem', letterSpacing: 1 }}>Lewd Lab</h1>
         <p style={{ margin: '8px 0 0', opacity: 0.7, fontSize: 14 }}>
-          Encounter sandbox — player drives the proactive partner. Wrong intensity / region /
-          intimacy should be able to spoil the beat.
+          {labMode === 'solo'
+            ? 'Solo masturbation — dampened self-stim; fantasy from erotic memory restores mental heat.'
+            : 'Encounter sandbox — player drives the proactive partner. Wrong intensity / region / intimacy should be able to spoil the beat.'}
         </p>
+        <div
+          style={{
+            display: 'inline-flex',
+            gap: 8,
+            marginTop: 12,
+            padding: 4,
+            borderRadius: 10,
+            background: 'rgba(255,255,255,0.06)',
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => setLabMode('partnered')}
+            style={{
+              ...navBtn,
+              background:
+                labMode === 'partnered'
+                  ? 'rgba(244,114,182,0.35)'
+                  : 'transparent',
+            }}
+          >
+            Partnered
+          </button>
+          <button
+            type="button"
+            onClick={() => setLabMode('solo')}
+            style={{
+              ...navBtn,
+              background:
+                labMode === 'solo' ? 'rgba(167,139,250,0.35)' : 'transparent',
+            }}
+          >
+            Solo
+          </button>
+          {labMode === 'partnered' ? (
+            <button
+              type="button"
+              onClick={() => setReactionsEnabled((v) => !v)}
+              style={{
+                ...navBtn,
+                background: reactionsEnabled
+                  ? 'rgba(52,211,153,0.28)'
+                  : 'transparent',
+              }}
+              title="On recipient orgasm during penetration, enqueue orifice clench on the penetrator (role-flipped resolve)"
+            >
+              Reactions {reactionsEnabled ? 'on' : 'off'}
+            </button>
+          ) : null}
+          {labMode === 'partnered' && recipient?.sex === 'F' ? (
+            <button
+              type="button"
+              onClick={() => setAnalPlugSeed((v) => !v)}
+              style={{
+                ...navBtn,
+                background: analPlugSeed
+                  ? 'rgba(251,146,60,0.3)'
+                  : 'transparent',
+              }}
+              title="Seed encounter with held anal plug (elevated starting dilation)"
+            >
+              Anal plug {analPlugSeed ? 'seeded' : 'off'}
+            </button>
+          ) : null}
+        </div>
+        {labMode === 'partnered' && reactionsEnabled ? (
+          <p style={{ margin: '8px 0 0', fontSize: 12, opacity: 0.65 }}>
+            Contact:{' '}
+            {(() => {
+              const c = penetrationContactFromChannels(channels);
+              return c ? formatPenetrationContact(c) : 'no penetrative thrust/grind';
+            })()}
+          </p>
+        ) : null}
       </header>
+
+      {labMode === 'solo' && recipient ? (
+        <section
+          style={{
+            ...cardStyle,
+            maxWidth: 1100,
+            margin: '0 auto 16px',
+            borderColor: 'rgba(167,139,250,0.35)',
+          }}
+        >
+          <h2 style={{ margin: '0 0 10px', fontSize: '1.1rem', color: '#c4b5fd' }}>
+            Solo · masturbation
+          </h2>
+          <p style={{ margin: '0 0 12px', fontSize: 13, opacity: 0.75, lineHeight: 1.45 }}>
+            Self-stim physio ×{LEWD_TUNING.masturbation.selfPhysioMult} · blank-mind psych ×
+            {LEWD_TUNING.masturbation.soloPsychMult}. Fantasy restores mental eroticism from
+            relationship × remembered act intimacy × freshness (physio stays dampened).
+            Recipient cast row is the masturbator; channels are self-touch.
+          </p>
+          <div
+            style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: 12,
+              alignItems: 'flex-end',
+              marginBottom: 12,
+            }}
+          >
+            <label style={{ fontSize: 12, opacity: 0.8 }}>
+              Lab clock (h)
+              <input
+                type="number"
+                value={labClockHours}
+                onChange={(e) => {
+                  const v = Number(e.target.value) || 0;
+                  setLabClockHours(v);
+                  setRecipient(advanceEroticMemory(recipient, v));
+                }}
+                style={{ ...selectStyle, width: 90, display: 'block', marginTop: 4 }}
+              />
+            </label>
+            <button type="button" style={navBtn} onClick={() => ageSoloMemory(6)}>
+              Age +6h
+            </button>
+            <button type="button" style={navBtn} onClick={() => ageSoloMemory(24)}>
+              Age +24h
+            </button>
+            <button type="button" style={navBtn} onClick={clearSoloMemory}>
+              Clear memory
+            </button>
+          </div>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
+              gap: 12,
+              marginBottom: 12,
+            }}
+          >
+            <div>
+              <div style={{ fontSize: 12, opacity: 0.65, marginBottom: 6 }}>
+                Seed erotic memory
+              </div>
+              <label style={{ fontSize: 12, display: 'block', marginBottom: 6 }}>
+                Kind
+                <select
+                  value={seedMemoryKind}
+                  onChange={(e) =>
+                    setSeedMemoryKind(e.target.value as 'participated' | 'witnessed')
+                  }
+                  style={{ ...selectStyle, display: 'block', marginTop: 4 }}
+                >
+                  <option value="participated">participated</option>
+                  <option value="witnessed">witnessed</option>
+                </select>
+              </label>
+              <label style={{ fontSize: 12, display: 'block', marginBottom: 6 }}>
+                About
+                <select
+                  value={seedMemoryPartnerId}
+                  onChange={(e) => setSeedMemoryPartnerId(e.target.value)}
+                  style={{ ...selectStyle, display: 'block', marginTop: 4 }}
+                >
+                  {cast.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label style={{ fontSize: 12, display: 'block', marginBottom: 6 }}>
+                Act intimacy {seedMemoryIntimacy.toFixed(1)}
+                <input
+                  type="range"
+                  min={1}
+                  max={10}
+                  step={0.1}
+                  value={seedMemoryIntimacy}
+                  onChange={(e) => setSeedMemoryIntimacy(Number(e.target.value))}
+                  style={{ width: '100%', display: 'block', marginTop: 4 }}
+                />
+              </label>
+              <button type="button" style={navBtn} onClick={seedSoloMemory}>
+                Seed memory
+              </button>
+            </div>
+            <div>
+              <div style={{ fontSize: 12, opacity: 0.65, marginBottom: 6 }}>
+                Fantasy focus
+              </div>
+              <label style={{ fontSize: 12, display: 'block', marginBottom: 6 }}>
+                Memory
+                <select
+                  value={fantasyMemoryId}
+                  onChange={(e) => {
+                    setFantasyMemoryId(e.target.value);
+                    setFantasyOverrideOn(false);
+                  }}
+                  style={{ ...selectStyle, display: 'block', marginTop: 4 }}
+                  disabled={fantasyOverrideOn}
+                >
+                  <option value="none">None (blank mind)</option>
+                  {listFantasyCandidates(recipient, labClockHours).map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {formatEroticMemoryLabel(m, Object.fromEntries(cast.map((u) => [u.id, u.name])))} ·{' '}
+                      {(m.freshness01 * 100).toFixed(0)}%
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label
+                style={{
+                  fontSize: 12,
+                  display: 'flex',
+                  gap: 8,
+                  alignItems: 'center',
+                  marginBottom: 6,
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={fantasyOverrideOn}
+                  onChange={(e) => setFantasyOverrideOn(e.target.checked)}
+                />
+                Lab override (ignore memory list)
+              </label>
+              {fantasyOverrideOn ? (
+                <>
+                  <label style={{ fontSize: 12, display: 'block', marginBottom: 6 }}>
+                    Partner
+                    <select
+                      value={fantasyOverridePartnerId}
+                      onChange={(e) => setFantasyOverridePartnerId(e.target.value)}
+                      style={{ ...selectStyle, display: 'block', marginTop: 4 }}
+                    >
+                      {cast.map((u) => (
+                        <option key={u.id} value={u.id}>
+                          {u.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label style={{ fontSize: 12, display: 'block', marginBottom: 6 }}>
+                    Kind
+                    <select
+                      value={fantasyOverrideKind}
+                      onChange={(e) =>
+                        setFantasyOverrideKind(
+                          e.target.value as 'participated' | 'witnessed'
+                        )
+                      }
+                      style={{ ...selectStyle, display: 'block', marginTop: 4 }}
+                    >
+                      <option value="participated">participated</option>
+                      <option value="witnessed">witnessed</option>
+                    </select>
+                  </label>
+                  <label style={{ fontSize: 12, display: 'block', marginBottom: 6 }}>
+                    Imagined intimacy {fantasyOverrideIntimacy.toFixed(1)}
+                    <input
+                      type="range"
+                      min={1}
+                      max={10}
+                      step={0.1}
+                      value={fantasyOverrideIntimacy}
+                      onChange={(e) =>
+                        setFantasyOverrideIntimacy(Number(e.target.value))
+                      }
+                      style={{ width: '100%', display: 'block', marginTop: 4 }}
+                    />
+                  </label>
+                </>
+              ) : null}
+              {(() => {
+                const f = scoreMasturbationFantasy(
+                  recipient,
+                  soloFantasyFocus(),
+                  labClockHours,
+                  relGraph,
+                  unitsByIdForFantasy()
+                );
+                return (
+                  <div style={{ fontSize: 12, lineHeight: 1.5, opacity: 0.85 }}>
+                    Preview: {f.label}
+                    <br />
+                    fantasy {(f.fantasy01 * 100).toFixed(0)}% · rel{' '}
+                    {(f.relationship01 * 100).toFixed(0)}% · intimacy01{' '}
+                    {f.intimacy01.toFixed(2)} · fresh {(f.freshness01 * 100).toFixed(0)}%
+                    {f.orientationMult < 1
+                      ? ` · orient ×${f.orientationMult}`
+                      : ''}
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+          <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 8 }}>
+            Memories ({(recipient.lewdStats.dynamic.eroticMemory ?? []).length})
+          </div>
+          <ul style={{ margin: '0 0 12px', paddingLeft: 18, fontSize: 12, lineHeight: 1.45 }}>
+            {(recipient.lewdStats.dynamic.eroticMemory ?? []).length === 0 ? (
+              <li style={{ opacity: 0.55 }}>None — seed or climax in Partnered mode</li>
+            ) : (
+              (recipient.lewdStats.dynamic.eroticMemory ?? []).map((m) => (
+                <li key={m.id}>
+                  {formatEroticMemoryLabel(
+                    m,
+                    Object.fromEntries(cast.map((u) => [u.id, u.name]))
+                  )}{' '}
+                  · fresh{' '}
+                  {(eroticMemoryFreshness01(m, labClockHours) * 100).toFixed(0)}%
+                </li>
+              ))
+            )}
+          </ul>
+          {performButton()}
+        </section>
+      ) : null}
 
       <div
         style={{
@@ -983,7 +1770,7 @@ function LewdLab() {
       >
         <section style={cardStyle}>
           <h2 style={{ margin: '0 0 10px', fontSize: '1.1rem', color: '#f9a8d4' }}>
-            Pairing
+            {labMode === 'solo' ? 'Masturbator (recipient)' : 'Pairing'}
           </h2>
           <label style={{ fontSize: 12, opacity: 0.75, display: 'block', marginBottom: 10 }}>
             Proactive (player-driven)
@@ -1044,6 +1831,7 @@ function LewdLab() {
             desire {bond.desire} · warmth {bond.warmth} · heat {bond.desireHeat} · budget{' '}
             <strong>{bondBudget.toFixed(0)}</strong>
             {meltCredit > 0 ? ` · melt +${meltCredit.toFixed(0)}` : ''}
+            {` · coax ${coaxAffinity.toFixed(2)}`}
             {recipientOrientResist > 0.05
               ? ` · resist ${recipientOrientResist.toFixed(2)}`
               : ''}
@@ -1134,6 +1922,8 @@ function LewdLab() {
                 {' · '}
                 mind {mindBand}
                 {' · '}
+                coaxFloor {coaxFloor.toFixed(2)}
+                {' · '}
                 tip-block ≥{LEWD_TUNING.encounter.psychContinuum.overwhelm}
                 {(encounter.orgasmSecondsRemaining ?? 0) > 0.05
                   ? ` · hypersens ${encounter.orgasmSecondsRemaining!.toFixed(0)}s`
@@ -1162,6 +1952,147 @@ function LewdLab() {
                         : `underwear ${w.label}`;
                     })()}
                   </p>
+                </>
+              ) : null}
+              {recipient?.sex === 'F' ? (
+                <>
+                  <Meter
+                    label="Anal dilation"
+                    value={
+                      (readOrificePlayFromEncounter(encounter).anal?.dilation01 ??
+                        0) * 100
+                    }
+                    max={100}
+                    color="#fdba74"
+                  />
+                  <Meter
+                    label="Anal raw"
+                    value={
+                      (readOrificePlayFromEncounter(encounter).anal?.raw01 ?? 0) *
+                      100
+                    }
+                    max={100}
+                    color="#f87171"
+                  />
+                  <Meter
+                    label="Vaginal dilation"
+                    value={
+                      (readOrificePlayFromEncounter(encounter).vagina
+                        ?.dilation01 ?? 0) * 100
+                    }
+                    max={100}
+                    color="#f9a8d4"
+                  />
+                  <Meter
+                    label="Vaginal raw"
+                    value={
+                      (readOrificePlayFromEncounter(encounter).vagina?.raw01 ??
+                        0) * 100
+                    }
+                    max={100}
+                    color="#fb7185"
+                  />
+                  <p style={{ margin: '4px 0 0', fontSize: 11, opacity: 0.65 }}>
+                    {(() => {
+                      const anus = blendOrificeSlick(
+                        recipient.lewdStats.dynamic.orificeSlick?.anus
+                      );
+                      const vagina = blendOrificeSlick(
+                        recipient.lewdStats.dynamic.orificeSlick?.vagina
+                      );
+                      const play = readOrificePlayFromEncounter(encounter);
+                      const held = play.anal?.heldInsertable
+                        ? ` · plug ${play.anal.heldInsertable.sizeClass}`
+                        : '';
+                      const analTorn =
+                        play.anal?.tornThisEncounter ||
+                        play.anal?.analTornThisEncounter
+                          ? ' · anal torn'
+                          : '';
+                      const vagTorn = play.vagina?.tornThisEncounter
+                        ? ' · vaginal torn'
+                        : '';
+                      const anusHp = recipient.combatStats.itemizedHealth.anus;
+                      const groinHp = recipient.combatStats.itemizedHealth.groin;
+                      const anusHpNote =
+                        anusHp.health < 0.999
+                          ? ` · anus HP ${(anusHp.health * 100).toFixed(0)}%`
+                          : '';
+                      const groinHpNote =
+                        groinHp.health < 0.999
+                          ? ` · groin HP ${(groinHp.health * 100).toFixed(0)}%`
+                          : '';
+                      return `anal slick ${(anus.wet01 * 100).toFixed(0)}% q${(anus.quality01 * 100).toFixed(0)}${held}${analTorn}${anusHpNote} · vag slick ${(vagina.wet01 * 100).toFixed(0)}% q${(vagina.quality01 * 100).toFixed(0)}${vagTorn}${groinHpNote}`;
+                    })()}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!recipient) return;
+                      setRecipient(clearAnalSlick(recipient));
+                      pushLog('Wiped anal slick (dry-entry test).');
+                    }}
+                    style={{ ...navBtn, marginTop: 6, fontSize: 11 }}
+                  >
+                    Wipe anal slick
+                  </button>
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexWrap: 'wrap',
+                      gap: 6,
+                      marginTop: 6,
+                    }}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!recipient) return;
+                        const r = applyOrificeOil(
+                          recipient,
+                          'anus',
+                          'oilRefined'
+                        );
+                        setRecipient(r.unit);
+                        pushLog(`lube · ${r.note}`);
+                      }}
+                      style={{ ...navBtn, fontSize: 11 }}
+                    >
+                      Oil anus (refined)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!recipient) return;
+                        const r = applyOrificeOil(
+                          recipient,
+                          'anus',
+                          'oilImprovised'
+                        );
+                        setRecipient(r.unit);
+                        pushLog(`lube · ${r.note}`);
+                      }}
+                      style={{ ...navBtn, fontSize: 11 }}
+                    >
+                      Oil anus (improvised)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!recipient) return;
+                        const r = applyOrificeOil(
+                          recipient,
+                          'vagina',
+                          'oilRefined'
+                        );
+                        setRecipient(r.unit);
+                        pushLog(`lube · ${r.note}`);
+                      }}
+                      style={{ ...navBtn, fontSize: 11 }}
+                    >
+                      Oil vagina (refined)
+                    </button>
+                  </div>
                 </>
               ) : null}
             </div>
@@ -1289,8 +2220,8 @@ function LewdLab() {
                       <span style={{ opacity: 0.85 }}>{body.blurb}</span>
                       <br />
                       <span style={{ opacity: 0.75 }}>
-                        100% ready = comfortable penetration lube (size/intensity gating later).
-                        Arousal gates secretion into the orifice; felt is floor + accumulation.
+                        100% ready = penetration-ready felt slick (orifice comfort also uses
+                        dilation × wet×quality). Arousal gates secretion; felt is floor + accumulation.
                       </span>
                     </p>
                     <Meter

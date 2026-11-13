@@ -44,6 +44,9 @@ import { LEWD_TUNING as T } from './lewdTuning';
 import { warpedPreferredIntensity } from './preferredIntensityWarp';
 
 /** One concurrent stim locus (hand, mouth, genitals, …). */
+/** Who queued the channel — reactions/NPC ignore player attention budget. */
+export type LewdChannelSource = 'player' | 'reaction' | 'npc';
+
 export interface LewdChannel {
   actorPart: string;
   actionId: string;
@@ -63,6 +66,10 @@ export interface LewdChannel {
    * displace = push aside then touch.
    */
   clothingAccess?: ClothingAccessMode;
+  /** Default player. Reaction/NPC overlays do not consume attention budget. */
+  source?: LewdChannelSource;
+  /** Stable id for reaction enqueue (e.g. orgasm_anal_clench). */
+  reactionId?: string;
 }
 
 export type AttentionLimb = 'mouth' | 'hands' | 'feet' | 'genitals' | 'other';
@@ -79,10 +86,13 @@ export function attentionLimbForActorPart(actorPart: string): AttentionLimb {
   if (/^hand/i.test(actorPart)) return 'hands';
   if (/^foot/i.test(actorPart)) return 'feet';
   if (
-    /^(penis|vagina|mons|breast|anus|thigh)/i.test(actorPart) ||
+    /^(penis|vagina|mons|breast|anus|rectum|thigh)/i.test(actorPart) ||
     actorPart === 'breast' ||
     actorPart === 'monsVenus' ||
     actorPart === 'vaginaShallow' ||
+    actorPart === 'vaginaDeep' ||
+    actorPart === 'rectumShallow' ||
+    actorPart === 'rectumDeep' ||
     actorPart === 'thighs'
   ) {
     return 'genitals';
@@ -101,12 +111,14 @@ export function attentionCostForActorPart(actorPart: string): number {
 export function totalAttentionCost(channels: LewdChannel[]): number {
   // Hands: each hand* channel costs 1 (two-hand play = 2).
   // Mouth/genitals/feet: max 1 each even if somehow duplicated.
+  // Reaction / NPC overlays do not consume player attention.
   let hands = 0;
   let mouth = 0;
   let feet = 0;
   let genitals = 0;
   let other = 0;
   for (const ch of channels) {
+    if (ch.source === 'reaction' || ch.source === 'npc') continue;
     const limb = attentionLimbForActorPart(ch.actorPart);
     const cost = attentionCostForActorPart(ch.actorPart);
     if (limb === 'hands') hands += cost;
@@ -384,12 +396,15 @@ function resolveOneChannel(
     action.intimacy,
     targetBit.intimacy
   );
-  const intimacyAllowed = intimacyAllowedForAct(
-    ctx.bond,
-    intimacyRequired,
-    orientForGate,
-    gateOpts.climaxCount
-  );
+  // Involuntary body reactions (orgasm clench) bypass intimacy hard-block.
+  const intimacyAllowed =
+    channel.source === 'reaction' ||
+    intimacyAllowedForAct(
+      ctx.bond,
+      intimacyRequired,
+      orientForGate,
+      gateOpts.climaxCount
+    );
 
   let arousalRequired = requiredArousalForAct(
     action.intimacy,
@@ -400,11 +415,15 @@ function resolveOneChannel(
   if (recipient.sex === 'F' && hormones) {
     arousalRequired *= testosteroneRequiredMult(hormones.testosterone);
   }
-  const arousalReadiness = evaluateArousalReadiness(
+  let arousalReadiness = evaluateArousalReadiness(
     currentArousal,
     arousalRequired,
     gateOpts
   );
+  // Already-engaged penetration clench: don't hard-rebuff the penetrator.
+  if (channel.source === 'reaction' && arousalReadiness === 'hardUnready') {
+    arousalReadiness = 'softUnready';
+  }
 
   const overstep =
     stim.overMax || stim.intensityDelta > T.overstepAbovePreferred;

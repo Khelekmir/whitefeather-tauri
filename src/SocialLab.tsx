@@ -61,10 +61,22 @@ import {
   type ShortTermRelationshipId,
 } from './data/social/relationships';
 import {
+  applyPressureCrystalNudges,
   driftDurablePressures,
   hydrateDurablePressures,
   snapshotDurablePressures,
 } from './utils/social/durablePressureState';
+import {
+  FLEETING_MOOD_SWINGS,
+  type FleetingMoodSwingId,
+} from './data/social/fleetingMoodSwings';
+import {
+  applyPublicExposureSwing,
+  driftMoodSwings,
+  listSalientMoodSwings,
+  nudgeMoodSwing,
+  readMoodSwing,
+} from './utils/social/fleetingMoodSwingState';
 import { PRESSURE_DRIFT_TUNING } from './utils/social/pressureDriftTuning';
 import { RELATIONSHIP_DRIFT_TUNING } from './utils/social/relationshipDriftTuning';
 import {
@@ -95,7 +107,23 @@ import {
   periodClothBleedThroughReport,
   unequipPeriodCloth,
 } from './utils/lewd/overworldDischarge';
-import { resolveSocialTask } from './utils/social/resolveSocialTask';
+import { progressTaskBoard } from './utils/social/applyTaskPlan';
+import {
+  describeSocialTaskEffects,
+  describeSocialTaskFlags,
+  formatParticipantEffectBlurb,
+} from './utils/social/describeSocialTaskEffects';
+import { planSocialTask } from './utils/social/planSocialTask';
+import {
+  evaluateSocialBondGate,
+  socialGateRequired,
+} from './utils/social/socialBondGate';
+import {
+  actorsBusyOn,
+  createAssignment,
+  passHoursToTaskMinutes,
+  type TaskAssignment,
+} from './utils/social/taskAssignmentClock';
 import { advanceStandingLust, standingLustTarget } from './utils/lewd/lustDrive';
 import {
   advanceFemalePhysiology,
@@ -691,7 +719,6 @@ function DurablePressuresPanel({
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
         {(
           [
-            [1 / 60, '1 min'],
             [5 / 60, '5 min'],
             [0.25, '15 min'],
             [1, '1 h'],
@@ -760,12 +787,16 @@ function MoodPanel({
   onToggleCompare,
   flipSexPreview,
   onToggleFlipSex,
+  onNudgeSwing,
+  onPublicExposure,
 }: {
   unit: DetailedUnit;
   compareBlend: boolean;
   onToggleCompare: () => void;
   flipSexPreview: boolean;
   onToggleFlipSex: () => void;
+  onNudgeSwing: (id: FleetingMoodSwingId, delta: number) => void;
+  onPublicExposure: (kind: 'lover' | 'hostile') => void;
 }) {
   const voiceSex = flipSexPreview ? (unit.sex === 'F' ? 'M' : 'F') : unit.sex;
   const resolved = flipSexPreview
@@ -774,6 +805,7 @@ function MoodPanel({
   const alt = compareBlend
     ? resolveMoodAsBlend(unit, 'Melancholic-Phlegmatic', voiceSex)
     : null;
+  const salient = listSalientMoodSwings(unit);
 
   return (
     <section style={cardStyle}>
@@ -789,7 +821,7 @@ function MoodPanel({
         }}
       >
         <div style={{ fontSize: 11, opacity: 0.6, marginBottom: 4 }}>
-          From durable pressures × temperament × sex ({voiceSex}
+          From durable pressures × fleeting swings × temperament × sex ({voiceSex}
           {flipSexPreview ? ' preview' : ''})
         </div>
         <div style={{ fontSize: '1.25rem', fontWeight: 700, color: '#bbf7d0' }}>
@@ -816,7 +848,8 @@ function MoodPanel({
           <div style={{ marginTop: 6, fontSize: 10, opacity: 0.5 }}>{resolved.tintNote}</div>
         ) : null}
         <div style={{ marginTop: 8, fontSize: 11, opacity: 0.7 }}>
-          Receptivity — chore ×{resolved.receptivity.chore.toFixed(2)} · talk ×
+          Receptivity (ST gains use bond/friction × thin stress·belonging overlay) —
+          chore ×{resolved.receptivity.chore.toFixed(2)} · talk ×
           {resolved.receptivity.talk.toFixed(2)} · friction ×
           {resolved.receptivity.friction.toFixed(2)} · bond ×
           {resolved.receptivity.bond.toFixed(2)}
@@ -826,6 +859,60 @@ function MoodPanel({
             {resolved.rationale.join(' · ')}
           </div>
         ) : null}
+      </div>
+
+      <div style={{ marginBottom: 14 }}>
+        <h3 style={{ margin: '0 0 6px', fontSize: 11, opacity: 0.65, letterSpacing: 0.4 }}>
+          FLEETING SWINGS
+        </h3>
+        <p style={{ margin: '0 0 8px', fontSize: 11, opacity: 0.55 }}>
+          Fast-decay emotions (≠ durable shame/pride). Tint mood + ST bond/friction
+          overlay. Pass Time decays them quickly.
+        </p>
+        {salient.length > 0 ? (
+          <div style={{ marginBottom: 8, fontSize: 12 }}>
+            {salient.map((s) => (
+              <Pill key={s.id}>{`${s.id} ${s.value.toFixed(0)}`}</Pill>
+            ))}
+          </div>
+        ) : (
+          <div style={{ marginBottom: 8, fontSize: 11, opacity: 0.45 }}>None salient</div>
+        )}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+          {FLEETING_MOOD_SWINGS.map((row) => (
+            <button
+              key={row.id}
+              type="button"
+              style={smallBtn}
+              title={row.blurb}
+              onClick={() => onNudgeSwing(row.id, 25)}
+            >
+              {row.label} +25
+              <span style={{ opacity: 0.55 }}>
+                {' '}
+                ({readMoodSwing(unit, row.id).toFixed(0)})
+              </span>
+            </button>
+          ))}
+        </div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+          <button
+            type="button"
+            style={smallBtn}
+            onClick={() => onPublicExposure('lover')}
+            title="Embarrassment + fluster + durable pride"
+          >
+            Public kiss (lover)
+          </button>
+          <button
+            type="button"
+            style={smallBtn}
+            onClick={() => onPublicExposure('hostile')}
+            title="Embarrassment + durable shame"
+          >
+            Public kiss (hostile)
+          </button>
+        </div>
       </div>
 
       {alt ? (
@@ -873,18 +960,72 @@ function TasksPanel({
   partner,
   selectedTaskId,
   onSelectTask,
-  onRunTask,
+  onAssignTask,
+  board,
+  relationships,
   log,
 }: {
   primary: DetailedUnit;
   partner: DetailedUnit | null;
   selectedTaskId: string;
   onSelectTask: (id: string) => void;
-  onRunTask: () => void;
+  onAssignTask: () => void;
+  board: TaskAssignment[];
+  relationships: RelationshipGraph;
   log: string[];
 }) {
   const task =
     SOCIAL_TASK_TEMPLATES.find((t) => t.id === selectedTaskId) ?? SOCIAL_TASK_TEMPLATES[0];
+  const cohortIds = partner ? [primary.id, partner.id] : [primary.id];
+  const busyHits = actorsBusyOn(board, cohortIds);
+  const needsPartner = !!task.requiresPartner && !partner;
+  const bondGate = evaluateSocialBondGate({
+    taskId: task.id,
+    taskLabel: task.label,
+    primary,
+    partner,
+    relationships,
+  });
+  const bondBlocked = !bondGate.ok && socialGateRequired(task.id) != null;
+  const assignBlocked = needsPartner || busyHits.length > 0 || bondBlocked;
+  const primaryBusy = board.find((a) => a.participantIds.includes(primary.id));
+  const partnerBusy = partner
+    ? board.find((a) => a.participantIds.includes(partner.id))
+    : null;
+
+  const effectPreview = (() => {
+    if (task.requiresPartner && !partner) {
+      return {
+        note: 'Add a partner to preview paired effects.',
+        lines: [] as { name: string; text: string }[],
+        flags: [] as string[],
+      };
+    }
+    const planned = planSocialTask({
+      taskId: task.id,
+      primary,
+      partner,
+      relationships,
+      skipBondGate: true,
+    });
+    if (!planned.ok) {
+      return {
+        note: planned.reason ?? 'Cannot preview this task.',
+        lines: [] as { name: string; text: string }[],
+        flags: [] as string[],
+      };
+    }
+    const participants = partner ? [primary, partner] : [primary];
+    const blurbs = describeSocialTaskEffects(planned.plan, participants);
+    return {
+      note: `Over ~${planned.totalMinutes} min (drips on Pass Time; finish one-shots at end). ST gains still scale with each writer's mood.`,
+      lines: blurbs.map((b) => ({
+        name: b.name,
+        text: formatParticipantEffectBlurb(b),
+      })),
+      flags: describeSocialTaskFlags(planned.plan),
+    };
+  })();
 
   return (
     <section style={cardStyle}>
@@ -892,10 +1033,31 @@ function TasksPanel({
         Tasks, actions &amp; events
       </h2>
       <p style={{ margin: '0 0 12px', fontSize: 12, opacity: 0.65 }}>
-        Shared activities that write short-term residue and pressures. Laundry, bathe,
-        watch, cook, and tend wounds are live; other catalog rows still stub. Pass Time
-        crystallizes ST → LT.
+        Assign chores onto a concurrent board; effects drip on Pass Time (5 min steps).
+        Soft LT gates block cold pairs from watch / bathe-together / tend. Chores stay
+        open. Idle defaults come later on this same board.
       </p>
+
+      {board.length > 0 ? (
+        <div
+          style={{
+            marginBottom: 12,
+            padding: '8px 10px',
+            borderRadius: 8,
+            background: 'rgba(125,211,252,0.08)',
+            fontSize: 12,
+            lineHeight: 1.45,
+          }}
+        >
+          <div style={{ fontWeight: 650, marginBottom: 4, opacity: 0.8 }}>Active</div>
+          {board.map((a) => (
+            <div key={a.id} style={{ opacity: 0.9 }}>
+              {a.label} · {a.remainingMinutes}m left · {a.participantIds.length} actor
+              {a.participantIds.length === 1 ? '' : 's'}
+            </div>
+          ))}
+        </div>
+      ) : null}
 
       <div
         style={{
@@ -936,10 +1098,22 @@ function TasksPanel({
           <div style={{ fontSize: 12, marginBottom: 10, opacity: 0.75 }}>
             Participants:{' '}
             <strong>{primary.name}</strong>
+            {primaryBusy ? (
+              <span style={{ color: '#fcd34d' }}>
+                {' '}
+                (busy {primaryBusy.remainingMinutes}m · {primaryBusy.label})
+              </span>
+            ) : null}
             {partner ? (
               <>
                 {' '}
                 + <strong>{partner.name}</strong>
+                {partnerBusy ? (
+                  <span style={{ color: '#fcd34d' }}>
+                    {' '}
+                    (busy {partnerBusy.remainingMinutes}m · {partnerBusy.label})
+                  </span>
+                ) : null}
               </>
             ) : (
               <span style={{ opacity: 0.55 }}> (solo / add a partner)</span>
@@ -958,20 +1132,65 @@ function TasksPanel({
               <Pill key={e}>{e}</Pill>
             ))}
           </div>
+          <div
+            style={{
+              marginBottom: 12,
+              padding: '8px 10px',
+              borderRadius: 8,
+              border: '1px solid rgba(125,211,252,0.25)',
+              background: 'rgba(15,23,42,0.35)',
+              fontSize: 12,
+              lineHeight: 1.45,
+            }}
+          >
+            <div style={{ fontWeight: 650, marginBottom: 4, color: '#7dd3fc' }}>
+              Planned effects
+            </div>
+            <div style={{ fontSize: 11, opacity: 0.6, marginBottom: 8 }}>
+              {effectPreview.note}
+            </div>
+            {effectPreview.lines.length === 0 ? (
+              <div style={{ opacity: 0.55 }}>No participant effect preview.</div>
+            ) : (
+              effectPreview.lines.map((line) => (
+                <div key={line.name} style={{ marginBottom: 8 }}>
+                  <strong>{line.name}</strong>
+                  <div style={{ opacity: 0.85, marginTop: 2 }}>{line.text}</div>
+                </div>
+              ))
+            )}
+            {effectPreview.flags.length > 0 ? (
+              <div style={{ marginTop: 4, fontSize: 11, opacity: 0.65 }}>
+                On finish · {effectPreview.flags.join(', ')}
+              </div>
+            ) : null}
+          </div>
           <button
             type="button"
             style={{
               ...smallBtn,
-              opacity: task.requiresPartner && !partner ? 0.45 : 1,
+              opacity: assignBlocked ? 0.45 : 1,
             }}
-            disabled={!!task.requiresPartner && !partner}
-            onClick={onRunTask}
+            disabled={assignBlocked}
+            onClick={onAssignTask}
           >
-            Run task
+            Assign task
           </button>
-          {task.requiresPartner && !partner ? (
+          {needsPartner ? (
             <p style={{ margin: '8px 0 0', fontSize: 11, color: '#fcd34d' }}>
-              Pick a partner to run this task.
+              Pick a partner to assign this task.
+            </p>
+          ) : bondBlocked ? (
+            <p style={{ margin: '8px 0 0', fontSize: 11, color: '#fcd34d' }}>
+              {bondGate.reason}
+            </p>
+          ) : busyHits.length > 0 ? (
+            <p style={{ margin: '8px 0 0', fontSize: 11, color: '#fcd34d' }}>
+              Busy: {busyHits.map((h) => h.unitId).join(', ')} — Pass Time to free them.
+            </p>
+          ) : socialGateRequired(task.id) != null && bondGate.budget != null ? (
+            <p style={{ margin: '8px 0 0', fontSize: 11, opacity: 0.55 }}>
+              Social bond {bondGate.budget.toFixed(0)} / need {bondGate.required}
             </p>
           ) : null}
         </div>
@@ -1262,6 +1481,7 @@ function SocialLab() {
   );
   const [taskId, setTaskId] = useState(SOCIAL_TASK_TEMPLATES[0]?.id ?? 'gather_firewood');
   const [taskLog, setTaskLog] = useState<string[]>([]);
+  const [taskBoard, setTaskBoard] = useState<TaskAssignment[]>([]);
   const [relGraph, setRelGraph] = useState<RelationshipGraph>(() =>
     buildCastRelationshipGraph(listDetailedCharacters())
   );
@@ -1465,7 +1685,15 @@ function SocialLab() {
     const prevCycleHour =
       coldIll.unit.lewdStats.dynamic.ovulationCycleCurrent ?? 0;
     const result = driftDurablePressures(coldIll.unit, hours);
-    const physio = advanceFemalePhysiology(result.unit, hours);
+    const swung = driftMoodSwings(result.unit, hours);
+    if (swung.deltas.length > 0) {
+      pushTaskLog(
+        `${primary.name} swings · ${swung.deltas
+          .map((d) => `${d.id} ${d.from.toFixed(0)}→${d.to.toFixed(0)}`)
+          .join(' · ')}`
+      );
+    }
+    const physio = advanceFemalePhysiology(swung.unit, hours);
     const lusted = advanceStandingLust(physio.unit, hours);
     const repro = advanceReproduction(lusted.unit, hours, {
       prevCycleHour,
@@ -1515,7 +1743,8 @@ function SocialLab() {
       const partnerPrevHour =
         partnerCold.unit.lewdStats.dynamic.ovulationCycleCurrent ?? 0;
       const partnerDrift = driftDurablePressures(partnerCold.unit, hours);
-      const partnerPhysio = advanceFemalePhysiology(partnerDrift.unit, hours);
+      const partnerSwung = driftMoodSwings(partnerDrift.unit, hours);
+      const partnerPhysio = advanceFemalePhysiology(partnerSwung.unit, hours);
       const partnerLust = advanceStandingLust(partnerPhysio.unit, hours);
       const partnerRepro = advanceReproduction(partnerLust.unit, hours, {
         prevCycleHour: partnerPrevHour,
@@ -1553,8 +1782,50 @@ function SocialLab() {
     };
     if (nextPartner) unitsById[nextPartner.id] = nextPartner;
 
-    const relResult = driftShortTermRelationships(relGraph, hours, unitsById);
+    // Task clocks: continuous drip + completion, then ST idle drift can crystallize.
+    const passMinutes = passHoursToTaskMinutes(hours);
+    const taskTick = progressTaskBoard(taskBoard, {
+      unitsById,
+      relationships: relGraph,
+    }, passMinutes);
+    setTaskBoard(taskTick.board);
+    for (const line of taskTick.log) pushTaskLog(line);
+    if (taskTick.flags.length > 0) {
+      pushTaskLog(`Task flags: ${[...new Set(taskTick.flags)].join(', ')}`);
+    }
+    const afterTasksPrimary =
+      taskTick.state.unitsById[afterSoil.id] ?? afterSoil;
+    setPrimary(afterTasksPrimary);
+    if (nextPartner) {
+      const afterTasksPartner =
+        taskTick.state.unitsById[nextPartner.id] ?? nextPartner;
+      setPartner(afterTasksPartner);
+      nextPartner = afterTasksPartner;
+    }
+    unitsById[afterTasksPrimary.id] = afterTasksPrimary;
+    if (nextPartner) unitsById[nextPartner.id] = nextPartner;
+
+    const relResult = driftShortTermRelationships(
+      taskTick.state.relationships,
+      hours,
+      unitsById
+    );
     setRelGraph(relResult.graph);
+
+    // ST fade → soft durable-pressure chips (meter only; anchors untouched).
+    const crystalPress = applyPressureCrystalNudges(
+      unitsById,
+      relResult.pressureDeltas
+    );
+    const crystalPrimary =
+      crystalPress.unitsById[afterTasksPrimary.id] ?? afterTasksPrimary;
+    setPrimary(crystalPrimary);
+    if (nextPartner) {
+      const crystalPartner =
+        crystalPress.unitsById[nextPartner.id] ?? nextPartner;
+      setPartner(crystalPartner);
+      nextPartner = crystalPartner;
+    }
 
     const mins = hours * 60;
     const label =
@@ -1596,6 +1867,17 @@ function SocialLab() {
             })
             .join(' · ');
 
+    const pressureCrystalSummary =
+      crystalPress.applied.length === 0
+        ? null
+        : crystalPress.applied
+            .slice(0, 8)
+            .map((d) => {
+              const sign = d.delta >= 0 ? '+' : '';
+              return `${d.id} ${sign}${d.delta.toFixed(1)}`;
+            })
+            .join(' · ');
+
     const len = primary.lewdStats.static.ovulationCycleLength || 28;
     const shift = describeCycleShift({
       before: cycleBefore,
@@ -1625,22 +1907,46 @@ function SocialLab() {
     pushTaskLog(
       `${primary.name}: pass ${label} — ${pressureSummary}${cycleNote}${soilNote}${reproNote} || ST ${relSummary}` +
         (crystalSummary ? ` || LT ${crystalSummary}` : '') +
+        (pressureCrystalSummary
+          ? ` || pressure←ST ${pressureCrystalSummary}`
+          : '') +
         partnerShiftSummary
     );
   };
 
-  const onRunTask = () => {
+  const onAssignTask = () => {
     if (!primary) return;
-    const result = resolveSocialTask({
+    const planned = planSocialTask({
       taskId,
       primary,
       partner,
       relationships: relGraph,
     });
-    setPrimary(result.primary);
-    if (result.partner) setPartner(result.partner);
-    setRelGraph(result.relationships);
-    for (const line of result.log) pushTaskLog(line);
+    if (!planned.ok) {
+      pushTaskLog(planned.reason ?? 'Could not assign task.');
+      return;
+    }
+    const busy = actorsBusyOn(taskBoard, planned.participantIds);
+    if (busy.length > 0) {
+      pushTaskLog(
+        `Busy — cannot assign “${planned.label}”: ${busy
+          .map((b) => `${b.unitId} (${b.assignment.label}, ${b.assignment.remainingMinutes}m)`)
+          .join('; ')}`
+      );
+      return;
+    }
+    const assignment = createAssignment({
+      taskId,
+      label: planned.label,
+      participantIds: planned.participantIds,
+      totalMinutes: planned.totalMinutes,
+      plan: planned.plan,
+      source: 'player',
+    });
+    setTaskBoard((prev) => [...prev, assignment]);
+    pushTaskLog(
+      `Assigned “${planned.label}” · ${planned.totalMinutes}m · ${planned.participantIds.join('+')} (effects on Pass Time).`
+    );
   };
 
   const onSetLongTermAxis = (
@@ -1896,6 +2202,18 @@ function SocialLab() {
               onToggleCompare={() => setCompareBlend((v) => !v)}
               flipSexPreview={flipSexPreview}
               onToggleFlipSex={() => setFlipSexPreview((v) => !v)}
+              onNudgeSwing={(id, delta) => {
+                setPrimary((u) => (u ? nudgeMoodSwing(u, id, delta) : u));
+                pushTaskLog(`${primary?.name ?? 'Unit'} swing ${id} ${delta >= 0 ? '+' : ''}${delta}`);
+              }}
+              onPublicExposure={(kind) => {
+                setPrimary((u) => (u ? applyPublicExposureSwing(u, kind) : u));
+                pushTaskLog(
+                  kind === 'lover'
+                    ? `${primary?.name ?? 'Unit'} public kiss (lover) — embarrassment + fluster + pride`
+                    : `${primary?.name ?? 'Unit'} public kiss (hostile) — embarrassment + shame`
+                );
+              }}
             />
           </div>
 
@@ -1905,7 +2223,9 @@ function SocialLab() {
               partner={partner}
               selectedTaskId={taskId}
               onSelectTask={setTaskId}
-              onRunTask={onRunTask}
+              onAssignTask={onAssignTask}
+              board={taskBoard}
+              relationships={relGraph}
               log={taskLog}
             />
             <RelationshipsPanel

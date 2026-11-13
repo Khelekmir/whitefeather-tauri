@@ -113,6 +113,69 @@ export function readPersonalizedValue(
   return typeof v === 'number' ? v : 0;
 }
 
+/** Soft meter write (0–100). Does not move anchors or baselines. */
+export function nudgePersonalizedPressure(
+  unit: DetailedUnit,
+  id: PersonalizedPressureId,
+  delta: number
+): DetailedUnit {
+  if (!delta) return unit;
+  if (id === 'lust') {
+    const from = unit.lewdStats.dynamic.lust ?? 0;
+    return {
+      ...unit,
+      lewdStats: {
+        ...unit.lewdStats,
+        dynamic: {
+          ...unit.lewdStats.dynamic,
+          lust: clamp100(from + delta),
+        },
+      },
+    };
+  }
+  const from = readPersonalizedValue(unit, id);
+  return {
+    ...unit,
+    socialStats: {
+      ...unit.socialStats,
+      dynamic: {
+        ...unit.socialStats.dynamic,
+        [id]: clamp100(from + delta),
+      },
+    },
+  };
+}
+
+/**
+ * Apply ST-crystallize pressure chips to units (meter only).
+ * Anchors / baselines unchanged — idle drift still reasserts personality.
+ */
+export function applyPressureCrystalNudges(
+  unitsById: Record<string, DetailedUnit>,
+  nudges: ReadonlyArray<{
+    unitId: string;
+    id: PersonalizedPressureId;
+    delta: number;
+  }>
+): {
+  unitsById: Record<string, DetailedUnit>;
+  applied: { unitId: string; id: PersonalizedPressureId; delta: number }[];
+} {
+  const next = { ...unitsById };
+  const applied: {
+    unitId: string;
+    id: PersonalizedPressureId;
+    delta: number;
+  }[] = [];
+  for (const n of nudges) {
+    const u = next[n.unitId];
+    if (!u || Math.abs(n.delta) < 0.01) continue;
+    next[n.unitId] = nudgePersonalizedPressure(u, n.id, n.delta);
+    applied.push({ unitId: n.unitId, id: n.id, delta: n.delta });
+  }
+  return { unitsById: next, applied };
+}
+
 export function snapshotDurablePressures(unit: DetailedUnit): DurablePressureSnapshot {
   const profile = resolveCharacterPressureProfile(
     unit.socialStats.static.temperament,

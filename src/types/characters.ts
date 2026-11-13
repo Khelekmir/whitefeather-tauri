@@ -18,6 +18,7 @@ import {
   SPELL_IDS,
   type SpellId,
 } from '../data/combat/spellCatalog';
+import type { FluidSample, UnitSubstanceTrace } from './fluids';
 
 export type { Position };
 export type { EquipmentLoadout, EquipmentLoadoutPatch, EquipmentSlotId, ItemSlot } from './items';
@@ -391,6 +392,13 @@ export interface SocialDynamic {
   pressureBaselines?: Partial<
     Record<import('../data/social/durablePressures').PersonalizedPressureId, number>
   >;
+  /**
+   * Fleeting mood swings (embarrassment, fluster, …) — unit-local, fast decay.
+   * Distinct from durable shame/pride and from dyadic ST weather.
+   */
+  moodSwings?: Partial<
+    Record<import('../data/social/fleetingMoodSwings').FleetingMoodSwingId, number>
+  >;
   /** Blood alcohol percent (0.08 = 0.08%). Rises as gut ethanol absorbs. */
   BAC: number;
   peakBAC: number;
@@ -624,7 +632,8 @@ export interface LewdDynamic {
   analVergeWet?: Partial<FluidSoilBag>;
   /**
    * Multi-lubricant slick layers by orifice (vagina | anus | mouth).
-   * Comfort gates deferred — Lab / verge dwell write anus for now.
+   * Feeds dilation×lube comfort. Writers: secretion, verge dwell, act
+   * saliva/oil, climax retain. Layers are kind+amount+quality only (no donor id).
    */
   orificeSlick?: Partial<
     Record<
@@ -632,6 +641,7 @@ export interface LewdDynamic {
       Array<{
         kind:
           | 'vaginalSecretion'
+          | 'analBaseline'
           | 'saliva'
           | 'semen'
           | 'preEjaculate'
@@ -694,6 +704,45 @@ export interface LewdDynamic {
   respiratoryIllness?: RespiratoryIllnessStage;
   /** Hours spent in the current respiratoryIllness stage. */
   respiratoryIllnessHours?: number;
+  /**
+   * Short-lived erotic memories for masturbation fantasy (witnessed / participated).
+   * Freshness decays with Pass-Time / Lab clock; capped by LEWD_TUNING.masturbation.
+   */
+  eroticMemory?: EroticMemoryEntry[];
+  /**
+   * Active consumable / medicine / elixir traces that stamp onto emitted fluids.
+   * See `utils/lewd/fluidSample.ts` — cloth soil does not carry these.
+   */
+  substanceTraces?: UnitSubstanceTrace[];
+  /**
+   * Harvested / collected fluid vials (identity + frozen properties).
+   * Ephemeral encounter deposits live on EncounterArousalState.fluidDeposits.
+   */
+  fluidSamples?: FluidSample[];
+}
+
+/** Kind of erotic memory available for solo fantasy. */
+export type EroticMemoryKind = 'witnessed' | 'participated';
+
+/**
+ * Something a character can mentally replay while masturbating.
+ * Relationship to partnerIds + actIntimacy scale fantasy psych.
+ */
+export interface EroticMemoryEntry {
+  id: string;
+  kind: EroticMemoryKind;
+  /** Who they think of (directed fantasy targets). */
+  partnerIds: string[];
+  /** Catalog act id when known. */
+  actionId?: string;
+  /** Peak intimacy of the remembered beat (catalog act and/or target). */
+  actIntimacy: number;
+  /** Optional locus hints for Lab labels. */
+  targetParts?: string[];
+  /** World/lab hours when recorded. */
+  recordedAtHours: number;
+  /** Optional intensity snapshot 1–10. */
+  intensity?: number;
 }
 
 export interface BodyPartLewd {

@@ -186,3 +186,95 @@ export function socialMultFromBond(bond: BondSnapshot): number {
     (bond.suspicion / 100) * 0.1
   );
 }
+
+function clamp01(n: number): number {
+  return Math.max(0, Math.min(1, n));
+}
+
+/**
+ * Affection+desire (trust soft) affinity for lover-coax arousal relief.
+ * Cold ≈ 0.15; warm ≈ 0.5; lovers ≈ 0.85.
+ */
+export function loverCoaxAffinity01(bond: BondSnapshot): number {
+  const C = T.bond.loverCoax;
+  return clamp01(
+    (bond.affection / 100) * C.affectionWeight +
+      (bond.desire / 100) * C.desireWeight +
+      (bond.trust / 100) * C.trustWeight +
+      (bond.desireHeat / 100) * C.desireHeatWeight -
+      (bond.hurt / 100) * C.hurtPenalty -
+      (bond.suspicion / 100) * C.suspicionPenalty
+  );
+}
+
+/**
+ * Phys gate for coax: 1 below taper, smooth to 0 at physCeiling.
+ */
+export function loverCoaxPhysGate01(discomfortPhys: number): number {
+  const C = T.bond.loverCoax;
+  const phys = Math.max(0, discomfortPhys);
+  if (phys >= C.physCeiling) return 0;
+  const taperStart = C.physCeiling - C.physTaperSpan;
+  if (phys <= taperStart) return 1;
+  return clamp01(1 - (phys - taperStart) / Math.max(0.01, C.physTaperSpan));
+}
+
+/**
+ * Active coax strength (affinity × phys gate × below psych hard-cap).
+ */
+export function loverCoaxActive01(
+  bond: BondSnapshot,
+  discomfortPsych: number,
+  discomfortPhys: number
+): number {
+  const hard = T.encounter.discomfortPsychHardCap;
+  if (discomfortPsych >= hard) return 0;
+  return loverCoaxAffinity01(bond) * loverCoaxPhysGate01(discomfortPhys);
+}
+
+/**
+ * Arousal gain floor from lover-coax (0 at psych hard-cap).
+ * Blended via max() with continuum gainMult + body-commit floor.
+ * Scope: arousal meter only — does not unlock acts or affect edge/tip.
+ */
+export function loverCoaxGainFloor(
+  bond: BondSnapshot,
+  discomfortPsych: number,
+  discomfortPhys: number
+): number {
+  const C = T.bond.loverCoax;
+  const hard = T.encounter.discomfortPsychHardCap;
+  const active = loverCoaxActive01(bond, discomfortPsych, discomfortPhys);
+  if (active <= 1e-6) return 0;
+  const psych = Math.max(0, Math.min(hard, discomfortPsych));
+  const remain = clamp01(1 - psych / Math.max(1, hard));
+  return (
+    active * C.coaxFloorAtClear * Math.pow(remain, C.coaxPsychTaperPower)
+  );
+}
+
+/**
+ * Scale overwhelm decay: high coax suppresses decay until break-approach band.
+ * Returns multiplier on continuum decayPerSec (0 = full suppress, 1 = full decay).
+ */
+export function loverCoaxDecayMult(
+  bond: BondSnapshot,
+  discomfortPsych: number,
+  discomfortPhys: number
+): number {
+  const C = T.bond.loverCoax;
+  const hard = T.encounter.discomfortPsychHardCap;
+  const active = loverCoaxActive01(bond, discomfortPsych, discomfortPhys);
+  if (active <= 1e-6) return 1;
+  const psych = Math.max(0, discomfortPsych);
+  const approachStart = hard - C.breakApproachSpan;
+  let breakApproach01 = 0;
+  if (psych >= hard) breakApproach01 = 1;
+  else if (psych > approachStart) {
+    breakApproach01 =
+      (psych - approachStart) / Math.max(0.01, C.breakApproachSpan);
+  }
+  // Full coax → decaySuppress of continuum decay; break-approach restores it.
+  const suppressed = 1 - active * C.decaySuppress * (1 - breakApproach01);
+  return clamp01(suppressed);
+}

@@ -18,6 +18,10 @@ import {
 } from '../lewd/ovulationCycle';
 import { derivePainLoad } from './painLoad';
 import { readPersonalizedValue } from './durablePressureState';
+import {
+  listSalientMoodSwings,
+  moodSwingTellLine,
+} from './fleetingMoodSwingState';
 import { MOOD_RESOLVE_TUNING as T } from './moodResolveTuning';
 
 export type AffectBand = 'low' | 'med' | 'high';
@@ -352,6 +356,8 @@ export function resolveMood(unit: DetailedUnit): ResolvedMood {
     T.primaryWeight,
     levels
   );
+  // Fleeting swings bias class scores (tint / primary) without durable meters.
+  applyFleetingSwingPaint(unit, scores, rationale);
   const picked = pickPrimaryAndTint(scores);
   const lexicon = getMoodLexicon(temperament.blend);
   const { line, tell } = composeFlavor(
@@ -361,7 +367,10 @@ export function resolveMood(unit: DetailedUnit): ResolvedMood {
     picked.secondary
   );
   const cycleTell = cycleTellForUnit(unit);
-  const tellWithCycle = cycleTell ? `${tell} — and ${cycleTell}` : tell;
+  const swingTell = moodSwingTellLine(unit, unit.sex);
+  let tellWithExtras = tell;
+  if (swingTell) tellWithExtras = `${tellWithExtras} — and ${swingTell}`;
+  if (cycleTell) tellWithExtras = `${tellWithExtras} — and ${cycleTell}`;
 
   return {
     temperament,
@@ -374,7 +383,7 @@ export function resolveMood(unit: DetailedUnit): ResolvedMood {
     primaryScore: picked.primaryScore,
     secondaryScore: picked.secondaryScore,
     flavor: line,
-    tell: tellWithCycle,
+    tell: tellWithExtras,
     cycleTell,
     receptivity: blendReceptivity(
       picked.primary,
@@ -384,6 +393,48 @@ export function resolveMood(unit: DetailedUnit): ResolvedMood {
     rationale,
     tintNote: picked.tintNote,
   };
+}
+
+/** Soft score bumps from salient fleeting swings. */
+function applyFleetingSwingPaint(
+  unit: DetailedUnit,
+  scores: Record<MoodClass, number>,
+  rationale: string[]
+): void {
+  const add = (cls: MoodClass, amount: number, why: string) => {
+    if (amount <= 0.02) return;
+    scores[cls] += amount;
+    if (amount >= 0.2 && rationale.length < 6) rationale.push(why);
+  };
+
+  for (const { id, value } of listSalientMoodSwings(unit)) {
+    const w = softHigh(value);
+    switch (id) {
+      case 'embarrassment':
+        add('withdrawn', 0.55 * w, 'swing embarrassment→withdrawn');
+        add('anxious', 0.4 * w, 'swing embarrassment→anxious');
+        break;
+      case 'fluster':
+        add('affectionate', 0.45 * w, 'swing fluster→affectionate');
+        add('playful', 0.35 * w, 'swing fluster→playful');
+        add('anxious', 0.25 * w, 'swing fluster→anxious');
+        break;
+      case 'thrill':
+        add('playful', 0.55 * w, 'swing thrill→playful');
+        add('open', 0.35 * w, 'swing thrill→open');
+        break;
+      case 'spooked':
+        add('anxious', 0.6 * w, 'swing spooked→anxious');
+        add('withdrawn', 0.35 * w, 'swing spooked→withdrawn');
+        break;
+      case 'smug':
+        add('driven', 0.4 * w, 'swing smug→driven');
+        add('playful', 0.3 * w, 'swing smug→playful');
+        break;
+      default:
+        break;
+    }
+  }
 }
 
 export function resolveMoodAsBlend(
